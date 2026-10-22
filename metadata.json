@@ -1,0 +1,6 @@
+{
+  "name": "NEXO PAY",
+  "description": "Pague QR Code Pix usando criptomoedas e stablecoins com liquidação instantânea.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,259 @@
+/* ==========================================================================
+   NEXO PAY - Sistema de Temas (Escuro e Claro)
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   TEMA ESCURO (Padrão e original da especificação)
+   -------------------------------------------------------------------------- */
+:root {
+  color-scheme: dark;
+
+  /* Piso de texto conforme especificação */
+  --min-text: 11px;
+
+  /* Cores fundamentais */
+  --bg: #0B1020;
+  --surface: #141C2F;
+  --surface-2: #182238;
+  --surface-3: #1D2942;
+  --accent: #36E0B5;
+  --on-accent: #06231E;
+  --on-accent-badge: #05211D;
+  --text: #F5F7FA;
+  --muted: #929DB2;
+  --line: rgba(168, 183, 210, 0.12);
+  --warning: #F3C969;
+  --danger: #EE6D78;
+  --danger-btn-text: #FFFFFF;
+
+  /* Cores auxiliares */
+  --outside-bg: #070B15;
+  --rail-bg: #0D1425;
+  --sheet-bg: #121A2C;
+  --sheet-handle: #3A4456;
+  --sheet-backdrop: rgba(2, 5, 11, 0.78);
+  --camera-bg: #060913;
+  --label-balance: #B1BBCC;
+  --balance-brl: #C3CADA;
+  --asset-usd: #CBD2DF;
+  --tab-inactive: #69758B;
+  --activity-out: #D5DCEC;
+  --activity-conv: #AD9CFF;
+  --activity-conv-bg: rgba(133, 112, 237, 0.12);
+  --demo-badge-text: #B7C3D7;
+  --warning-text: #D8C58D;
+  --info-card-text: #A9B5C8;
+  --partner-time: #AAB6CA;
+  --empty-title: #BCC5D5;
+  --profile-menu-icon: #B6C0D2;
+  --profile-avatar-bg: #243650;
+  --partner-logo-bg: #263653;
+  --partner-logo-text: #36E0B5;
+  --brand-bar: #0B1020;
+
+  /* Interruptor */
+  --switch-track-off: #303A4E;
+  --switch-thumb-off: #AAB2C0;
+  --switch-thumb-on: #092720;
+
+  /* QR Code (fixo claro com células escuras nos dois temas) */
+  --qr-bg: #F8FAFC;
+  --qr-dot: #0B1020;
+
+  /* Câmera do Leitor (fixo escuro nos dois temas) */
+  --camera-border: rgba(255, 255, 255, 0.1);
+  --camera-flashlight-border: rgba(255, 255, 255, 0.18);
+  --camera-flashlight-bg: rgba(9, 14, 25, 0.65);
+  --camera-flashlight-active-bg: rgba(54, 224, 181, 0.25);
+  --camera-gradient: radial-gradient(circle at 60% 30%, #273345 0%, transparent 40%), linear-gradient(155deg, #17202E 0%, #05070D 100%);
+  --camera-check-color: #08231F;
+
+  /* Cores das Moedas (constantes da marca) */
+  --coin-usdt-bg: #1C8772;
+  --coin-usdt-text: #CFFFF3;
+  --coin-usdc-bg: #2775CA;
+  --coin-usdc-text: #D8EDFF;
+  --coin-eth-bg: #6658B5;
+  --coin-eth-text: #E7E2FF;
+
+  /* Transparências e tonalidades do Accent */
+  --accent-tint-5: rgba(54, 224, 181, 0.05);
+  --accent-tint-6: rgba(54, 224, 181, 0.06);
+  --accent-tint-7: rgba(54, 224, 181, 0.07);
+  --accent-tint-8: rgba(54, 224, 181, 0.08);
+  --accent-tint-9: rgba(54, 224, 181, 0.09);
+  --accent-tint-10: rgba(54, 224, 181, 0.10);
+  --accent-tint-12: rgba(54, 224, 181, 0.12);
+  --accent-border-25: rgba(54, 224, 181, 0.25);
+  --accent-border-35: rgba(54, 224, 181, 0.35);
+  --accent-border-45: rgba(54, 224, 181, 0.45);
+  --accent-halo: rgba(54, 224, 181, 0.10);
+  --accent-dot-glow: rgba(54, 224, 181, 0.6);
+  --accent-btn-shadow: rgba(54, 224, 181, 0.12);
+  --accent-action-shadow: rgba(54, 224, 181, 0.15);
+  --accent-pay-shadow: rgba(54, 224, 181, 0.25);
+  --accent-glow-spinner: rgba(54, 224, 181, 0.08);
+  --action-icon-bg-primary: rgba(7, 39, 35, 0.1);
+
+  /* Transparências Warning e Danger */
+  --warning-bg-7: rgba(243, 201, 105, 0.07);
+  --warning-bg-8: rgba(243, 201, 105, 0.08);
+  --warning-border-15: rgba(243, 201, 105, 0.15);
+  --warning-border-20: rgba(243, 201, 105, 0.20);
+  --danger-bg-8: rgba(238, 109, 120, 0.08);
+  --danger-border-20: rgba(238, 109, 120, 0.20);
+
+  /* Informações e Badges */
+  --info-bg: rgba(66, 107, 166, 0.08);
+  --info-border: rgba(105, 137, 186, 0.12);
+  --demo-badge-bg: rgba(255, 255, 255, 0.025);
+  --profile-badge-bg: rgba(183, 195, 215, 0.1);
+
+  /* Superfícies e Degradês */
+  --frame-gradient-top: rgba(27, 39, 66, 0.2);
+  --balance-card-gradient: linear-gradient(145deg, #192640 0%, #11192B 100%);
+  --balance-card-border: rgba(124, 153, 195, 0.16);
+  --avatar-home-gradient: linear-gradient(135deg, #253753 0%, #142131 100%);
+  --partner-selected-gradient: linear-gradient(135deg, rgba(54, 224, 181, 0.08) 0%, var(--surface) 100%);
+  --chart-bar-gradient: linear-gradient(180deg, var(--accent) 0%, rgba(54, 224, 181, 0.05) 100%);
+
+  /* Efeitos e Sombras */
+  --frame-shadow: rgba(0, 0, 0, 0.65);
+  --card-shadow: rgba(0, 0, 0, 0.19);
+  --toast-shadow: rgba(0, 0, 0, 0.5);
+  --sheet-shadow: rgba(0, 0, 0, 0.7);
+  --segmented-shadow: rgba(0, 0, 0, 0.15);
+  --pill-active-shadow: rgba(0, 0, 0, 0.25);
+  --bottom-nav-bg: rgba(11, 16, 32, 0.95);
+  --icon-btn-bg: rgba(20, 28, 47, 0.8);
+  --empty-dashed-bg: rgba(20, 28, 47, 0.25);
+  --item-hover-bg: rgba(255, 255, 255, 0.02);
+  --item-active-bg: rgba(255, 255, 255, 0.04);
+}
+
+/* --------------------------------------------------------------------------
+   TEMA CLARO
+   -------------------------------------------------------------------------- */
+/* PROVISÓRIO: será substituído pelo design claro oficial */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* Cores fundamentais */
+  --bg: #F4F6FB;
+  --surface: #FFFFFF;
+  --surface-2: #EDF1F7;
+  --surface-3: #E1E7F0;
+  --accent: #0D9488;
+  --on-accent: #FFFFFF;
+  --on-accent-badge: #FFFFFF;
+  --text: #0F172A;
+  --muted: #57657A;
+  --line: rgba(30, 41, 59, 0.10);
+  --warning: #B47D08;
+  --danger: #DC2626;
+  --danger-btn-text: #FFFFFF;
+
+  /* Cores auxiliares */
+  --outside-bg: #E8ECF2;
+  --rail-bg: #E5EBF4;
+  --sheet-bg: #FFFFFF;
+  --sheet-handle: #CBD5E1;
+  --sheet-backdrop: rgba(15, 23, 42, 0.45);
+  --label-balance: #475569;
+  --balance-brl: #334155;
+  --asset-usd: #475569;
+  --tab-inactive: #64748B;
+  --activity-out: #334155;
+  --activity-conv: #6366F1;
+  --activity-conv-bg: rgba(99, 102, 241, 0.12);
+  --demo-badge-text: #475569;
+  --warning-text: #8C6809;
+  --info-card-text: #24416B;
+  --partner-time: #475569;
+  --empty-title: #334155;
+  --profile-menu-icon: #4B5971;
+  --profile-avatar-bg: #E2E8F0;
+  --partner-logo-bg: #E2E8F0;
+  --partner-logo-text: #0D9488;
+  --brand-bar: #0F172A;
+
+  /* Interruptor */
+  --switch-track-off: #CBD5E1;
+  --switch-thumb-off: #FFFFFF;
+  --switch-thumb-on: #FFFFFF;
+
+  /* QR Code (mantém fundo claro e células escuras nos dois temas conforme especificado) */
+  --qr-bg: #F8FAFC;
+  --qr-dot: #0B1020;
+
+  /* Câmera do Leitor (mantém fundo escuro nos dois temas conforme especificado) */
+  --camera-bg: #060913;
+  --camera-border: rgba(255, 255, 255, 0.1);
+  --camera-flashlight-border: rgba(255, 255, 255, 0.18);
+  --camera-flashlight-bg: rgba(9, 14, 25, 0.65);
+  --camera-flashlight-active-bg: rgba(13, 148, 136, 0.25);
+  --camera-gradient: radial-gradient(circle at 60% 30%, #273345 0%, transparent 40%), linear-gradient(155deg, #17202E 0%, #05070D 100%);
+  --camera-check-color: #08231F;
+
+  /* Cores das Moedas (constantes da marca) */
+  --coin-usdt-bg: #1C8772;
+  --coin-usdt-text: #CFFFF3;
+  --coin-usdc-bg: #2775CA;
+  --coin-usdc-text: #D8EDFF;
+  --coin-eth-bg: #6658B5;
+  --coin-eth-text: #E7E2FF;
+
+  /* Transparências e tonalidades do Accent */
+  --accent-tint-5: rgba(13, 148, 136, 0.05);
+  --accent-tint-6: rgba(13, 148, 136, 0.06);
+  --accent-tint-7: rgba(13, 148, 136, 0.07);
+  --accent-tint-8: rgba(13, 148, 136, 0.08);
+  --accent-tint-9: rgba(13, 148, 136, 0.09);
+  --accent-tint-10: rgba(13, 148, 136, 0.10);
+  --accent-tint-12: rgba(13, 148, 136, 0.12);
+  --accent-border-25: rgba(13, 148, 136, 0.25);
+  --accent-border-35: rgba(13, 148, 136, 0.35);
+  --accent-border-45: rgba(13, 148, 136, 0.45);
+  --accent-halo: rgba(13, 148, 136, 0.12);
+  --accent-dot-glow: rgba(13, 148, 136, 0.45);
+  --accent-btn-shadow: rgba(13, 148, 136, 0.15);
+  --accent-action-shadow: rgba(13, 148, 136, 0.15);
+  --accent-pay-shadow: rgba(13, 148, 136, 0.22);
+  --accent-glow-spinner: rgba(13, 148, 136, 0.10);
+  --action-icon-bg-primary: rgba(255, 255, 255, 0.25);
+
+  /* Transparências Warning e Danger */
+  --warning-bg-7: rgba(180, 125, 8, 0.08);
+  --warning-bg-8: rgba(180, 125, 8, 0.10);
+  --warning-border-15: rgba(180, 125, 8, 0.20);
+  --warning-border-20: rgba(180, 125, 8, 0.28);
+  --danger-bg-8: rgba(220, 38, 38, 0.08);
+  --danger-border-20: rgba(220, 38, 38, 0.22);
+
+  /* Informações e Badges */
+  --info-bg: rgba(59, 130, 246, 0.07);
+  --info-border: rgba(59, 130, 246, 0.16);
+  --demo-badge-bg: rgba(0, 0, 0, 0.035);
+  --profile-badge-bg: rgba(71, 85, 105, 0.08);
+
+  /* Superfícies e Degradês */
+  --frame-gradient-top: rgba(210, 222, 240, 0.35);
+  --balance-card-gradient: linear-gradient(145deg, #FFFFFF 0%, #F0F4FA 100%);
+  --balance-card-border: rgba(30, 41, 59, 0.08);
+  --avatar-home-gradient: linear-gradient(135deg, #E2E8F0 0%, #CBD5E1 100%);
+  --partner-selected-gradient: linear-gradient(135deg, rgba(13, 148, 136, 0.08) 0%, var(--surface) 100%);
+  --chart-bar-gradient: linear-gradient(180deg, var(--accent) 0%, rgba(13, 148, 136, 0.05) 100%);
+
+  /* Efeitos e Sombras */
+  --frame-shadow: rgba(0, 0, 0, 0.10);
+  --card-shadow: rgba(0, 0, 0, 0.04);
+  --toast-shadow: rgba(0, 0, 0, 0.15);
+  --sheet-shadow: rgba(0, 0, 0, 0.18);
+  --segmented-shadow: rgba(0, 0, 0, 0.07);
+  --pill-active-shadow: rgba(0, 0, 0, 0.08);
+  --bottom-nav-bg: rgba(255, 255, 255, 0.95);
+  --icon-btn-bg: rgba(240, 244, 250, 0.9);
+  --empty-dashed-bg: rgba(235, 240, 248, 0.5);
+  --item-hover-bg: rgba(0, 0, 0, 0.02);
+  --item-active-bg: rgba(0, 0, 0, 0.04);
+}

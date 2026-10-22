@@ -1,0 +1,267 @@
+@import './styles/themes.css';
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  background-color: var(--outside-bg);
+  color: var(--text);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Safe area insets para topo e laterais */
+.nexo-topbar {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Moldura centralizada */
+#root {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background-color: var(--outside-bg);
+}
+
+.nexo-app-frame {
+  width: 100%;
+  max-width: 430px;
+  min-height: 100vh;
+  background-color: var(--bg);
+  background-image: linear-gradient(180deg, var(--frame-gradient-top) 0px, transparent 180px);
+  background-repeat: no-repeat;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Em telas maiores que 700 px, o app fica centralizado numa moldura de 430 px com cantos de 30 px */
+@media (min-width: 701px) {
+  #root {
+    padding: 24px 0;
+  }
+  .nexo-app-frame {
+    min-height: 844px;
+    height: calc(100vh - 48px);
+    max-height: 932px;
+    border-radius: 30px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-shadow: 0 25px 60px var(--frame-shadow), 0 0 0 1px var(--line);
+  }
+
+  /* Ajusta a barra inferior para ficar fixa dentro do container */
+  .nexo-app-frame .nexo-bottom-nav {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    transform: none;
+    max-width: 100%;
+    margin-top: auto;
+  }
+}
+
+/* Botões */
+.nexo-button {
+  cursor: pointer;
+  border: none;
+  font-family: inherit;
+  transition: transform 200ms ease, opacity 200ms ease, background-color 200ms ease;
+}
+
+.nexo-button:active {
+  transform: scale(0.985);
+}
+
+.nexo-button--primary {
+  background-color: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 10px 25px var(--accent-btn-shadow);
+}
+
+.nexo-button--secondary {
+  background-color: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line) !important;
+}
+
+.nexo-button--ghost {
+  background-color: transparent;
+  color: var(--muted);
+}
+
+.nexo-button--danger {
+  background-color: var(--danger);
+  color: var(--danger-btn-text);
+}
+
+/* Botão de Ícone */
+.nexo-icon-button {
+  cursor: pointer;
+  outline: none;
+  transition: transform 200ms ease, background-color 200ms ease;
+}
+
+.nexo-icon-button:active {
+  transform: scale(0.95);
+}
+
+/* Ações Rápidas */
+.nexo-action-card {
+  transition: transform 200ms ease, filter 200ms ease, background-color 200ms ease;
+}
+
+.nexo-action-card:active {
+  transform: scale(0.97);
+}
+
+.nexo-action-card--primary:active {
+  filter: brightness(0.95);
+}
+
+/* Cartões de Ativos */
+.nexo-asset-card:active {
+  transform: scale(0.98);
+  border-color: var(--accent-border-35) !important;
+}
+
+/* Itens de Atividade */
+.nexo-activity-item:hover {
+  background-color: var(--item-hover-bg);
+}
+
+.nexo-activity-item:active {
+  background-color: var(--item-active-bg);
+}
+
+/* Barra inferior */
+.nexo-bottom-nav-item:active {
+  transform: scale(0.93);
+}
+
+.nexo-bottom-nav-item--pay:active div {
+  transform: translateY(-25px) scale(0.95);
+}
+
+/* Acessibilidade: Foco visível */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Animação da Linha de Varredura do Leitor */
+@keyframes nexo-scan-move {
+  0% {
+    transform: translateY(-86px);
+    opacity: 0.35;
+  }
+  50% {
+    transform: translateY(86px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-86px);
+    opacity: 0.35;
+  }
+}
+
+.nexo-scanner-line {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 1px;
+  background-color: var(--accent);
+  box-shadow: 0 0 11px var(--accent);
+  animation: nexo-scan-move 2s ease-in-out infinite;
+}
+
+/* Animação do Spinner de Processamento */
+@keyframes nexo-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.nexo-spinner {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  border: 2px solid var(--surface-3);
+  border-top-color: var(--accent);
+  box-shadow: 0 0 14px var(--accent-glow-spinner);
+  animation: nexo-spin 1.2s linear infinite;
+}
+
+/* Seletor segmentado */
+.nexo-segmented {
+  background-color: var(--rail-bg);
+  padding: 4px;
+  border-radius: 15px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.nexo-segmented-btn {
+  height: 37px;
+  border-radius: 11px;
+  font-size: max(var(--min-text), 10px);
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 180ms ease;
+  user-select: none;
+}
+
+.nexo-segmented-btn.is-active {
+  background-color: var(--surface-3);
+  color: var(--text);
+  box-shadow: 0 4px 10px var(--segmented-shadow);
+}
+
+/* Scrollbar refinada */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 4px;
+}
+
+/* Animação do Bottom Sheet */
+@keyframes nexo-sheet-slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
