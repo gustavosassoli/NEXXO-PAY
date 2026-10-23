@@ -27,20 +27,36 @@ export const ReaderScreen: React.FC = () => {
   const [flashlightOn, setFlashlightOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
   const [streamActive, setStreamActive] = useState(false);
-  const [permissionError, setPermissionError] = useState(false);
+  const [isStartingCamera, setIsStartingCamera] = useState(false);
+  const [cameraErrorName, setCameraErrorName] = useState<string | null>(null);
+  const [gumStatus, setGumStatus] = useState<string>('aguardando');
+  const [fps, setFps] = useState<number>(0);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastScanTimeRef = useRef<number>(0);
+  const fpsTrackerRef = useRef<{ count: number; lastTime: number }>({
+    count: 0,
+    lastTime: performance.now(),
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Garante a existência do canvas reutilizável para leitura de quadros
+  const isRealMode = CAMERA_MODE === 'real';
+
+  // Identifica decodificador disponível
+  const activeDecoder =
+    typeof window !== 'undefined' && 'BarcodeDetector' in window
+      ? 'BarcodeDetector'
+      : 'jsQR';
+
+  // Reutiliza canvas para leitura de frames
   if (!canvasRef.current && typeof document !== 'undefined') {
     canvasRef.current = document.createElement('canvas');
   }
 
+  // Para completamente o stream da câmera e limpa referências
   const stopCamera = () => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
@@ -50,8 +66,8 @@ export const ReaderScreen: React.FC = () => {
       streamRef.current.getTracks().forEach((track) => {
         try {
           track.stop();
-        } catch {
-          // ignore
+        } catch (e) {
+          console.warn('[NEXO PAY] Erro ao parar faixa da câmera:', e);
         }
       });
       streamRef.current = null;
@@ -62,37 +78,142 @@ export const ReaderScreen: React.FC = () => {
     setStreamActive(false);
     setFlashlightOn(false);
     setTorchSupported(false);
+    setFps(0);
+    fpsTrackerRef.current = { count: 0, lastTime: performance.now() };
   };
 
+  // Garante que ao montar a tela, ela inicia no estado de permissão
+  useEffect(() => {
+    // Diagnóstico de iframe
+    if (typeof window !== 'undefined') {
+      const inIframe = window.self !== window.top;
+      if (inIframe) {
+        console.warn('[NEXO PAY] Aplicação em execução dentro de um iframe. A permissão da câmera depende de allow="camera" no contêiner pai.');
+      }
+    }
+
+    setReaderState('permission');
+    setStreamActive(false);
+
+    return () => {
+      stopCamera();
+      setReaderState('permission');
+    };
+  }, []);
+
+  // Monitora visibilidade da aba: ao ocultar, para tracks e volta para permissão
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.info('[NEXO PAY] Aba oculta detectada. Desligando câmera e resetando estado.');
+        stopCamera();
+        setReaderState('permission');
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  // Solicita câmera dentro do toque direto do usuário
   const startCamera = async () => {
-    setPermissionError(false);
+    setCameraErrorName(null);
+    setIsStartingCamera(true);
+
     if (!navigator?.mediaDevices?.getUserMedia) {
-      setPermissionError(true);
+      const errName = 'SecurityError';
+      console.error(
+        '[NEXO PAY] navigator.mediaDevices.getUserMedia indisponível. Contexto seguro (HTTPS) obrigatório.'
+      );
+      setCameraErrorName(errName);
+      setGumStatus(errName);
+      setIsStartingCamera(false);
       setReaderState('permission');
       return;
     }
 
     try {
       stopCamera();
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
 
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
+      let stream: MediaStream | null = null;
+
+      // 1. Tenta câmera traseira (environment)
+      try {
+        console.info('[NEXO PAY] Solicitando câmera com facingMode environment...');
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        });
+      } catch (firstErr: any) {
+        console.warn(
+          '[NEXO PAY] Falha ao solicitar câmera traseira:',
+          firstErr?.name,
+          firstErr?.message
+        );
+        // Se falhou por restrição de câmera traseira, tenta com qualquer câmera (video: true)
+        if (
+          firstErr?.name === 'OverconstrainedError' ||
+          firstErr?.name === 'ConstraintNotSatisfiedError' ||
+          firstErr?.name === 'NotFoundError'
+        ) {
+          console.info('[NEXO PAY] Tentando fallback para qualquer câmera disponível (video: true)...');
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        } else {
+          throw firstErr;
+        }
       }
 
+      if (!stream) {
+        throw new Error('Nenhum stream de mídia foi retornado pelo navegador.');
+      }
+
+      streamRef.current = stream;
+      setGumStatus('ok');
+      console.info('[NEXO PAY] getUserMedia concedido com sucesso. Conectando elemento de vídeo...');
+
+      const video = videoRef.current;
+      if (video) {
+        video.srcObject = stream;
+
+        // Espera o evento 'playing' para confirmar que o vídeo começou a tocar
+        await new Promise<void>((resolve) => {
+          let hasResolved = false;
+          const finish = () => {
+            if (!hasResolved) {
+              hasResolved = true;
+              video.removeEventListener('playing', onPlaying);
+              resolve();
+            }
+          };
+          const onPlaying = () => {
+            console.info('[NEXO PAY] Evento "playing" disparado pelo <video>.');
+            finish();
+          };
+
+          video.addEventListener('playing', onPlaying, { once: true });
+
+          video.play().catch((playErr) => {
+            console.warn('[NEXO PAY] video.play() necessitou de recuperação:', playErr);
+            finish();
+          });
+
+          // Timeout de contingência (3s) para não travar caso o evento demore
+          setTimeout(finish, 3000);
+        });
+      }
+
+      // Ativa o estado da câmera ativa somente DEPOIS que o vídeo está tocando
       setStreamActive(true);
       setReaderState('active');
+      setIsStartingCamera(false);
 
-      // Verifica capacidade de lanterna (torch)
+      // Checa suporte a lanterna
       const track = stream.getVideoTracks()[0];
       if (track && typeof track.getCapabilities === 'function') {
         const capabilities: any = track.getCapabilities();
@@ -101,16 +222,24 @@ export const ReaderScreen: React.FC = () => {
         }
       }
 
-      // Inicia loop de escaneamento
+      // Inicia loop de leitura de frames
       startScanLoop();
-    } catch (err) {
+    } catch (err: any) {
+      const errName = err?.name || 'Error';
+      console.error(
+        '[NEXO PAY] Falha no acesso à câmera:',
+        errName,
+        err?.message || err
+      );
+      setCameraErrorName(errName);
+      setGumStatus(errName);
       stopCamera();
-      setPermissionError(true);
       setReaderState('permission');
+      setIsStartingCamera(false);
     }
   };
 
-  // Processa uma imagem ou frame de vídeo para detectar QR Code
+  // Processa frame ou imagem estática
   const decodeFrameOrImage = async (
     source: CanvasImageSource,
     width: number,
@@ -119,7 +248,6 @@ export const ReaderScreen: React.FC = () => {
     const canvas = canvasRef.current;
     if (!canvas || width <= 0 || height <= 0) return null;
 
-    // Escala máxima de 640px para manter leve e sem lentidão
     const maxDim = 640;
     const scale = Math.min(1, maxDim / Math.max(width, height));
     const targetWidth = Math.max(1, Math.round(width * scale));
@@ -133,7 +261,7 @@ export const ReaderScreen: React.FC = () => {
 
     ctx.drawImage(source, 0, 0, targetWidth, targetHeight);
 
-    // 1. Tenta API nativa BarcodeDetector se disponível
+    // 1. Tenta BarcodeDetector nativo
     if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
       try {
         const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
@@ -142,11 +270,11 @@ export const ReaderScreen: React.FC = () => {
           return barcodes[0].rawValue;
         }
       } catch {
-        // Fallback para jsQR se BarcodeDetector falhar
+        // Fallback para jsQR
       }
     }
 
-    // 2. Fallback universal jsQR (Safari, Firefox, etc.)
+    // 2. Fallback universal jsQR
     try {
       const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
       const code = jsQR(imageData.data, imageData.width, imageData.height, {
@@ -162,12 +290,23 @@ export const ReaderScreen: React.FC = () => {
     return null;
   };
 
+  // Loop de varredura com requestAnimationFrame limitado a ~12 leituras/segundo
   const startScanLoop = () => {
+    fpsTrackerRef.current = { count: 0, lastTime: performance.now() };
+
     const scan = async () => {
       const video = videoRef.current;
       if (video && video.readyState >= 2 && !video.paused) {
         const now = performance.now();
-        // Limita a ~12 scans por segundo (intervalo >= 80ms)
+
+        // Medição de FPS para diagnóstico
+        fpsTrackerRef.current.count += 1;
+        if (now - fpsTrackerRef.current.lastTime >= 1000) {
+          setFps(fpsTrackerRef.current.count);
+          fpsTrackerRef.current.count = 0;
+          fpsTrackerRef.current.lastTime = now;
+        }
+
         if (now - lastScanTimeRef.current >= 80) {
           lastScanTimeRef.current = now;
           const qrCode = await decodeFrameOrImage(
@@ -201,12 +340,12 @@ export const ReaderScreen: React.FC = () => {
         advanced: [{ torch: nextState }],
       });
       setFlashlightOn(nextState);
-    } catch {
-      // ignore
+    } catch (e) {
+      console.warn('[NEXO PAY] Falha ao alternar lanterna:', e);
     }
   };
 
-  // Selecionar imagem da galeria
+  // Galeria de imagens
   const handleGalleryClick = () => {
     fileInputRef.current?.click();
   };
@@ -243,8 +382,8 @@ export const ReaderScreen: React.FC = () => {
     img.src = objectUrl;
   };
 
-  const handleContinueDemo = () => {
-    if (CAMERA_MODE === 'real') {
+  const handleAllowClick = () => {
+    if (isRealMode) {
       startCamera();
     } else {
       setReaderState('active');
@@ -256,26 +395,28 @@ export const ReaderScreen: React.FC = () => {
     navigate('/pagar/revisar');
   };
 
-  // Cleanup de câmera e visibilitychange
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        stopCamera();
-        if (CAMERA_MODE === 'real' && readerState === 'active') {
-          setReaderState('permission');
-        }
-      }
-    };
+  // Mensagem amigável de erro conforme o código de falha da API da câmera
+  const getErrorMessage = (): string => {
+    switch (cameraErrorName) {
+      case 'NotAllowedError':
+      case 'PermissionDeniedError':
+        return 'Permissão negada ou bloqueada no navegador. Permita o acesso à câmera nas configurações do site ou use a galeria.';
+      case 'NotFoundError':
+      case 'DevicesNotFoundError':
+        return 'Nenhuma câmera encontrada no aparelho. Conecte uma câmera ou use a galeria.';
+      case 'NotReadableError':
+      case 'TrackStartError':
+        return 'A câmera já está sendo usada por outro app. Feche outros aplicativos e tente novamente.';
+      case 'OverconstrainedError':
+        return 'Restrições da câmera não suportadas. Use a galeria de imagens.';
+      case 'SecurityError':
+        return 'Contexto inseguro (requer HTTPS) ou política bloqueando a câmera.';
+      default:
+        return strings.pay.permissionDeniedHelper;
+    }
+  };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      stopCamera();
-    };
-  }, [readerState]);
-
-  // Título e subtítulo dinâmicos
+  // Título e subtítulo dinâmicos da tela
   let stateTitle: string = strings.pay.permissionTitle;
   let stateSubtitle: string = strings.pay.permissionSubtitle;
 
@@ -293,8 +434,6 @@ export const ReaderScreen: React.FC = () => {
     stateSubtitle = strings.pay.unrecognizedSubtitle;
   }
 
-  const isRealMode = CAMERA_MODE === 'real';
-
   return (
     <div
       className="nexo-screen nexo-screen--reader"
@@ -311,6 +450,7 @@ export const ReaderScreen: React.FC = () => {
         showBack={true}
         onBack={() => {
           stopCamera();
+          setReaderState('permission');
           navigate('/');
         }}
         actionIcon="help"
@@ -352,7 +492,21 @@ export const ReaderScreen: React.FC = () => {
           flexShrink: 0,
         }}
       >
-        {/* Elemento de vídeo da câmera real */}
+        {/* Fundo simulado degradê (z-index 0) */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'var(--camera-gradient)',
+            opacity: streamActive ? 0 : 0.8,
+            filter: readerState === 'permission' ? 'blur(7px)' : 'none',
+            transition: 'opacity 300ms ease, filter 300ms ease',
+            zIndex: 0,
+            pointerEvents: 'none',
+          }}
+        />
+
+        {/* Elemento <video> SEMPRE presente no DOM (z-index 1) */}
         <video
           ref={videoRef}
           playsInline
@@ -364,25 +518,14 @@ export const ReaderScreen: React.FC = () => {
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            display: streamActive ? 'block' : 'none',
+            zIndex: 1,
+            opacity: streamActive ? 1 : 0,
+            transition: 'opacity 200ms ease',
+            pointerEvents: 'none',
           }}
         />
 
-        {/* Fundo simulado da câmera quando stream desligado */}
-        {!streamActive && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              background: 'var(--camera-gradient)',
-              opacity: 0.8,
-              filter: readerState === 'permission' ? 'blur(7px)' : 'none',
-              transition: 'filter 300ms ease',
-            }}
-          />
-        )}
-
-        {/* Moldura central de 228x228 com cantos accent */}
+        {/* Moldura central de 228x228 com cantos accent (z-index 2) */}
         <div
           style={{
             width: '228px',
@@ -394,6 +537,7 @@ export const ReaderScreen: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 2,
+            pointerEvents: 'none',
           }}
         >
           {/* 4 cantos da moldura */}
@@ -470,7 +614,7 @@ export const ReaderScreen: React.FC = () => {
           )}
         </div>
 
-        {/* Botão Lanterna (pílula, 18px do fundo) */}
+        {/* Botão Lanterna (z-index 3) */}
         <button
           type="button"
           onClick={handleFlashlightToggle}
@@ -532,7 +676,8 @@ export const ReaderScreen: React.FC = () => {
         >
           {stateSubtitle}
         </p>
-        {permissionError && (
+
+        {cameraErrorName && readerState === 'permission' && (
           <p
             style={{
               margin: '8px 0 0',
@@ -541,7 +686,7 @@ export const ReaderScreen: React.FC = () => {
               lineHeight: 1.4,
             }}
           >
-            {strings.pay.permissionDeniedHelper}
+            {getErrorMessage()}
           </p>
         )}
       </div>
@@ -549,8 +694,16 @@ export const ReaderScreen: React.FC = () => {
       {/* Botões de Ação do Leitor */}
       <div style={{ marginTop: '4px', marginBottom: '15px' }}>
         {readerState === 'permission' && (
-          <Button variant="primary" onClick={handleContinueDemo}>
-            {isRealMode ? strings.pay.allowCamera : strings.pay.continueDemo}
+          <Button
+            variant="primary"
+            onClick={handleAllowClick}
+            disabled={isStartingCamera}
+          >
+            {isStartingCamera
+              ? strings.common.loading
+              : isRealMode
+              ? strings.pay.allowCamera
+              : strings.pay.continueDemo}
           </Button>
         )}
 
@@ -668,7 +821,6 @@ export const ReaderScreen: React.FC = () => {
           tabIndex={0}
           aria-label={strings.pay.enterPixCode}
           onClick={() => {
-            // Se houver código simulado em clipboard ou prompt, podemos acionar leitura
             simulateValidRead();
           }}
           onKeyDown={(e) => {
@@ -759,6 +911,23 @@ export const ReaderScreen: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Linha de diagnóstico discreta (apenas com DEMO_MODE = true) */}
+      {DEMO_MODE && (
+        <div
+          style={{
+            marginTop: '16px',
+            textAlign: 'center',
+            fontSize: '9px',
+            color: 'var(--muted)',
+            lineHeight: 1.4,
+            userSelect: 'none',
+            opacity: 0.75,
+          }}
+        >
+          Diagnóstico: modo {CAMERA_MODE} | gUM: {gumStatus} | {fps} fps | {activeDecoder}
+        </div>
+      )}
     </div>
   );
 };

@@ -169,7 +169,7 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const resetFlow = () => {
-    setReaderState('active');
+    setReaderState('permission');
     setCodeScanned(false);
     setPaymentConfirmed(false);
     setResultState('confirmed');
