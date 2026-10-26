@@ -1,13 +1,15 @@
 /**
  * NEXO PAY - Motor de cotação e cálculo de taxas para pagamentos Pix com Cripto
- * Realiza todas as operações em inteiros/BigInt para evitar imprecisões de ponto flutuante.
+ * Operações puramente aritméticas em inteiros (BRL em centavos) e BigInt (cripto em unidades mínimas).
+ * Sem ponto flutuante, sem parseFloat, sem Math.round, sem toFixed.
  */
+
+import { formatToken } from './money';
 
 export type SupportedAsset = 'USDT' | 'USDC' | 'ETH';
 
 export interface QuoteResult {
   asset: SupportedAsset;
-  brlAmount: number;
   brlCents: number;
   // Taxas fixas em centavos BRL
   conversionFeeBrlCents: number;
@@ -17,121 +19,163 @@ export interface QuoteResult {
   totalBrlCents: number;
   // Cotação
   quoteString: string;
-  // Cripto
-  convertedTokenRaw: number;
-  totalTokenRaw: number;
-  feesTokenRaw: number;
+  // Cripto em unidades mínimas (BigInt)
+  convertedUnits: bigint;
+  feesUnits: bigint;
+  totalUnits: bigint;
+  decimals: number;
+  // Representações formatadas
   convertedTokenString: string;
   totalTokenString: string;
   feesTokenString: string;
   debitedString: string;
   // Saldo
+  balanceUnits: bigint;
   balanceString: string;
-  balanceRaw: number;
   isInsufficientBalance: boolean;
+  // Temporização (45s de reserva)
+  quotedAt: number;
+  expiresAt: number;
 }
 
-// Saldos do usuário no protótipo
-export const ASSET_BALANCES: Record<SupportedAsset, { raw: number; formatted: string }> = {
-  USDT: { raw: 850.0, formatted: '850,00 USDT' },
-  USDC: { raw: 334.5, formatted: '334,50 USDC' },
-  ETH: { raw: 0.039, formatted: '0,039 ETH' },
-};
-
-// Taxas fixas em BRL centavos
-export const FIXED_FEES = {
-  conversionFeeBrlCents: 128, // R$ 1,28
-  networkFeeBrlCents: 42, // R$ 0,42
-  serviceFeeBrlCents: 80, // R$ 0,80
-  totalFeesBrlCents: 250, // R$ 2,50
-};
-
 /**
- * Formata número com decimais fixos e separador decimal ','
+ * Saldos mockados do usuário em unidades mínimas de cada token:
+ * - USDT: 850,00 -> 850_000_000n (6 decimais)
+ * - USDC: 334,50 -> 334_500_000n (6 decimais)
+ * - ETH: 0,039 -> 39_000_000_000_000_000n (18 decimais)
  */
-function formatTokenUnits(units: bigint, decimals: number): string {
-  const scale = 10n ** BigInt(decimals);
-  const intPart = units / scale;
-  const fracPart = units % scale;
-  const fracStr = fracPart.toString().padStart(decimals, '0');
-  return `${intPart},${fracStr}`;
-}
+export const ASSET_BALANCES_UNITS: Record<
+  SupportedAsset,
+  { units: bigint; decimals: number; formatted: string }
+> = {
+  USDT: {
+    units: 850_000_000n,
+    decimals: 6,
+    formatted: '850,00 USDT',
+  },
+  USDC: {
+    units: 334_500_000n,
+    decimals: 6,
+    formatted: '334,50 USDC',
+  },
+  ETH: {
+    units: 39_000_000_000_000_000n,
+    decimals: 18,
+    formatted: '0,039 ETH',
+  },
+};
 
 /**
- * Calcula a cotação e taxas a partir do valor em Reais e do ativo selecionado
+ * Taxas fixas do sistema em centavos de Real:
+ * - Conversão: R$ 1,28 (128 centavos)
+ * - Rede: R$ 0,42 (42 centavos)
+ * - Serviço: R$ 0,80 (80 centavos)
+ * - Total: R$ 2,50 (250 centavos)
+ */
+export const FIXED_FEES = {
+  conversionFeeBrlCents: 128,
+  networkFeeBrlCents: 42,
+  serviceFeeBrlCents: 80,
+  totalFeesBrlCents: 250,
+} as const;
+
+export const QUOTE_RESERVATION_DURATION_MS = 45_000;
+
+/**
+ * Calcula a cotação e taxas a partir do valor em centavos de Real (brlCents) e do ativo selecionado.
+ * Retorna as quantias em BigInt na precisão nativa do token e as strings formatadas.
  */
 export function calculateQuote(
-  brlAmount: number,
+  brlCents: number,
   asset: SupportedAsset,
-  customBalance?: number
+  customBalanceUnits?: bigint,
+  nowMs?: number
 ): QuoteResult {
-  // Converte o valor em reais (ex: 128.40) para centavos inteiros (12840)
-  const brlCents = Math.round(brlAmount * 100);
-
   const { conversionFeeBrlCents, networkFeeBrlCents, serviceFeeBrlCents, totalFeesBrlCents } =
     FIXED_FEES;
   const totalBrlCents = brlCents + totalFeesBrlCents;
 
-  const userBalance =
-    customBalance !== undefined ? customBalance : ASSET_BALANCES[asset].raw;
+  const assetInfo = ASSET_BALANCES_UNITS[asset];
+  const userBalanceUnits =
+    customBalanceUnits !== undefined ? customBalanceUnits : assetInfo.units;
   const balanceString =
-    customBalance !== undefined
-      ? `${customBalance.toString().replace('.', ',')} ${asset}`
-      : ASSET_BALANCES[asset].formatted;
+    customBalanceUnits !== undefined
+      ? formatToken(
+          userBalanceUnits,
+          assetInfo.decimals,
+          asset,
+          asset === 'ETH' ? 3 : 2,
+          asset === 'ETH' ? 5 : 3
+        )
+      : assetInfo.formatted;
 
   let quoteString = '';
   let convertedUnits = 0n;
   let totalUnits = 0n;
-  let decimals = 3;
-  let divisorScale = 1000;
+  let decimals = 6;
+  let minFmt = 2;
+  let maxFmt = 3;
 
   if (asset === 'USDT' || asset === 'USDC') {
     quoteString = `1 ${asset} = R$ 5,155`;
-    decimals = 3;
-    divisorScale = 1000;
+    decimals = 6;
+    minFmt = 3;
+    maxFmt = 3;
 
     // 1 token = 5,155 BRL = 515.5 cents = 5155 millicents.
     // brlCents em millicents = brlCents * 10n
+    // Para obter 3 casas decimais de precisão de exibição:
+    // displayUnits (milésimos de token) = (millicents * 1000n + halfRate) / rateMillicents
+    // Em unidades mínimas de 6 decimais: displayUnits * 1000n
     const rateMillicents = 5155n;
     const halfRate = rateMillicents / 2n;
 
     const brlMillicentsConverted = BigInt(brlCents) * 10n;
-    convertedUnits = (brlMillicentsConverted * 1000n + halfRate) / rateMillicents;
+    const convertedDisplay =
+      (brlMillicentsConverted * 1000n + halfRate) / rateMillicents;
+    convertedUnits = convertedDisplay * 1000n;
 
     const brlMillicentsTotal = BigInt(totalBrlCents) * 10n;
-    totalUnits = (brlMillicentsTotal * 1000n + halfRate) / rateMillicents;
+    const totalDisplay =
+      (brlMillicentsTotal * 1000n + halfRate) / rateMillicents;
+    totalUnits = totalDisplay * 1000n;
   } else {
     // ETH: 1 ETH = R$ 13.218,00 = 1.321.800 centavos
     quoteString = '1 ETH = R$ 13.218,00';
-    decimals = 5;
-    divisorScale = 100000;
+    decimals = 18;
+    minFmt = 5;
+    maxFmt = 5;
 
     const rateCents = 1321800n;
     const halfRate = rateCents / 2n;
 
+    // 5 casas decimais de precisão (100000n)
     const brlCentsBig = BigInt(brlCents);
-    convertedUnits = (brlCentsBig * 100000n + halfRate) / rateCents;
+    const convertedDisplay =
+      (brlCentsBig * 100000n + halfRate) / rateCents;
+    // Em 18 decimais: display (5 decimais) * 10^13n
+    convertedUnits = convertedDisplay * 10_000_000_000_000n;
 
     const totalBrlCentsBig = BigInt(totalBrlCents);
-    totalUnits = (totalBrlCentsBig * 100000n + halfRate) / rateCents;
+    const totalDisplay =
+      (totalBrlCentsBig * 100000n + halfRate) / rateCents;
+    totalUnits = totalDisplay * 10_000_000_000_000n;
   }
 
   const feesUnits = totalUnits - convertedUnits;
 
-  const convertedTokenString = `${formatTokenUnits(convertedUnits, decimals)} ${asset}`;
-  const totalTokenString = `${formatTokenUnits(totalUnits, decimals)} ${asset}`;
-  const feesTokenString = `${formatTokenUnits(feesUnits, decimals)} ${asset}`;
+  const convertedTokenString = formatToken(convertedUnits, decimals, asset, minFmt, maxFmt);
+  const totalTokenString = formatToken(totalUnits, decimals, asset, minFmt, maxFmt);
+  const feesTokenString = formatToken(feesUnits, decimals, asset, minFmt, maxFmt);
   const debitedString = `${totalTokenString} debitados`;
 
-  const totalTokenRaw = Number(totalUnits) / divisorScale;
-  const convertedTokenRaw = Number(convertedUnits) / divisorScale;
-  const feesTokenRaw = Number(feesUnits) / divisorScale;
+  const isInsufficientBalance = totalUnits > userBalanceUnits;
 
-  const isInsufficientBalance = totalTokenRaw > userBalance;
+  const currentTime = nowMs !== undefined ? nowMs : Date.now();
+  const expiresAt = currentTime + QUOTE_RESERVATION_DURATION_MS;
 
   return {
     asset,
-    brlAmount: brlCents / 100,
     brlCents,
     conversionFeeBrlCents,
     networkFeeBrlCents,
@@ -139,15 +183,18 @@ export function calculateQuote(
     totalFeesBrlCents,
     totalBrlCents,
     quoteString,
-    convertedTokenRaw,
-    totalTokenRaw,
-    feesTokenRaw,
+    convertedUnits,
+    feesUnits,
+    totalUnits,
+    decimals,
     convertedTokenString,
     totalTokenString,
     feesTokenString,
     debitedString,
+    balanceUnits: userBalanceUnits,
     balanceString,
-    balanceRaw: userBalance,
     isInsufficientBalance,
+    quotedAt: currentTime,
+    expiresAt,
   };
 }

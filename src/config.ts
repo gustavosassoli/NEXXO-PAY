@@ -20,3 +20,16 @@ export const DEMO_MODE = true;
  * - 'simulated': exibe botões de simulação sem acessar câmera (comportamento W1).
  */
 export const CAMERA_MODE: 'real' | 'simulated' = 'real';
+
+/**
+ * Modo dos serviços da camada de pagamento:
+ * - 'mock': usa serviços simulados em memória (W6).
+ * - 'real': pluga provedor Pix, backend e carteira Web3 real.
+ */
+export const SERVICES_MODE: 'mock' | 'real' = 'mock';
+
+/**
+ * Exibição do rodapé de diagnóstico técnico no leitor de QR Code.
+ * Por padrão false, mantendo o visual fiel ao design original.
+ */
+export const SHOW_DIAGNOSTICS: boolean = false;

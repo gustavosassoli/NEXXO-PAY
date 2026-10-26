@@ -1,6 +1,9 @@
 /**
  * NEXO PAY - Analisador e Validador de BR Code (Pix EMV QRCPS)
+ * Processamento estrito em centavos inteiros sem ponto flutuante.
  */
+
+import { formatBrl } from './money';
 
 export type PixParseStatus =
   | 'valido'
@@ -14,9 +17,9 @@ export interface PixParsedData {
   raw: string;
   receiverName: string;
   receiverCity: string;
-  amount: number; // e.g. 128.40
-  amountFormatted: string; // e.g. "R$ 128,40"
-  txid: string; // e.g. "NEXO1842"
+  amountCents: number; // Centavos inteiros (ex.: 12840 para R$ 128,40)
+  amountFormatted: string; // Ex.: "R$ 128,40"
+  txid: string; // Ex.: "NEXO1842"
   pixKey?: string;
   gui?: string;
 }
@@ -73,6 +76,57 @@ export function parseTLV(str: string): { tags: Record<string, string>; isTruncat
     i += len;
   }
   return { tags, isTruncated: false };
+}
+
+/**
+ * Analisa estritamente o valor textual do campo 54 do Pix BR Code para centavos inteiros (amountCents).
+ * Regras:
+ * - Leitura puramente textual sem parseFloat ou Math.round.
+ * - Formato: dígitos com ponto decimal opcional e no máximo 2 casas decimais (ex.: "128.40", "86.00", "15", "10.5").
+ * - Rejeita se tiver mais de 2 casas decimais (ex.: "128.405").
+ * - Rejeita se for negativo ou contiver sinais.
+ * - Rejeita se for zero ("0", "0.00").
+ * - Rejeita caracteres inválidos, letras ou vírgula.
+ */
+export function parsePixAmountToCents(amountStr: string | undefined): {
+  isValid: boolean;
+  amountCents?: number;
+  errorMessage?: string;
+} {
+  if (!amountStr) {
+    return {
+      isValid: false,
+      errorMessage: 'QR Code Pix sem valor definido não é suportado nesta versão.',
+    };
+  }
+
+  const trimmed = amountStr.trim();
+  // Aceita apenas inteiros ou inteiros com 1 ou 2 casas decimais separadas por ponto
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+    return {
+      isValid: false,
+      errorMessage: 'Valor com formato inválido na cobrança Pix (esperado até 2 casas decimais).',
+    };
+  }
+
+  const parts = trimmed.split('.');
+  const wholePart = parts[0];
+  const decimalPart = parts.length === 2 ? parts[1].padEnd(2, '0') : '00';
+
+  const centsText = `${wholePart}${decimalPart}`;
+  const amountCents = parseInt(centsText, 10);
+
+  if (amountCents <= 0) {
+    return {
+      isValid: false,
+      errorMessage: 'Valor deve ser estritamente maior que zero.',
+    };
+  }
+
+  return {
+    isValid: true,
+    amountCents,
+  };
 }
 
 /**
@@ -200,26 +254,18 @@ export function parsePixQRCode(raw: string): PixParseResult {
     };
   }
 
-  // Tag 54: Valor da cobrança
-  const amountStr = tags['54'];
-  if (!amountStr) {
+  // Tag 54: Valor da cobrança (analisado estritamente em centavos sem ponto flutuante)
+  const amountValidation = parsePixAmountToCents(tags['54']);
+  if (!amountValidation.isValid || amountValidation.amountCents === undefined) {
     return {
       status: 'sem_valor',
       isValid: false,
-      message: 'QR Code Pix sem valor definido não é suportado nesta versão.',
+      message: amountValidation.errorMessage || 'Valor inválido na cobrança Pix.',
       visualState: 'unrecognized',
     };
   }
 
-  const amount = parseFloat(amountStr);
-  if (isNaN(amount) || amount <= 0) {
-    return {
-      status: 'sem_valor',
-      isValid: false,
-      message: 'Valor inválido na cobrança Pix.',
-      visualState: 'unrecognized',
-    };
-  }
+  const amountCents = amountValidation.amountCents;
 
   // Tag 59: Recebedor
   const receiverName = tags['59'] || 'Recebedor Pix';
@@ -234,10 +280,7 @@ export function parsePixQRCode(raw: string): PixParseResult {
     txid = addtl.tags['05'] || '';
   }
 
-  const amountFormatted = new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(amount);
+  const amountFormatted = formatBrl(amountCents);
 
   return {
     status: 'valido',
@@ -248,7 +291,7 @@ export function parsePixQRCode(raw: string): PixParseResult {
       raw: trimmed,
       receiverName,
       receiverCity,
-      amount,
+      amountCents,
       amountFormatted,
       txid,
       pixKey,

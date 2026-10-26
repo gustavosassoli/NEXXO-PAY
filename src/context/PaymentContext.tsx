@@ -1,7 +1,10 @@
-import React, { createContext, useContext, useState, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { CoinType } from '../components/Coin';
 import { parsePixQRCode, PixParseResult } from '../lib/brcode';
-import { calculateQuote, SupportedAsset } from '../lib/quote';
+import { formatBrl } from '../lib/money';
+import { Payment, PaymentAsset, PaymentPixData, PaymentQuote } from '../domain/payment/types';
+import { resultStateFor, ResultOutcome } from '../domain/payment/steps';
+import { useServices } from '../services';
 
 export type ReaderState =
   | 'permission'
@@ -10,11 +13,7 @@ export type ReaderState =
   | 'invalid'
   | 'unrecognized';
 
-export type PaymentResultState =
-  | 'confirmed'
-  | 'pending'
-  | 'refused'
-  | 'expired';
+export type PaymentResultState = ResultOutcome;
 
 export interface PaymentDetails {
   receiverName: string;
@@ -44,7 +43,7 @@ export interface AssetQuoteConfig {
   isInsufficientBalance: boolean;
 }
 
-const DEFAULT_SAMPLE_CODE =
+export const DEFAULT_SAMPLE_CODE =
   '00020101021226580014br.gov.bcb.pix013611111111-2222-4333-8444-5555555555555204000053039865406128.405802BR5917MERCADO VILA NOVA6009SAO PAULO62120508NEXO184263046550';
 
 function getNowDateStrings(): { date: string; receiptDateTime: string } {
@@ -69,11 +68,11 @@ export const defaultPaymentDetails: PaymentDetails = {
   institution: 'Banco Parceiro S.A.',
   description: 'Compra balcão 1842',
   date: 'Hoje, 10:48',
-  chargeBrlCents: 12840, // R$ 128,40
+  chargeBrlCents: 12840, // R$ 128,40 (centavos inteiros)
   amountFormatted: 'R$ 128,40',
-  conversionFeeBrlCents: 128, // R$ 1,28
-  networkFeeBrlCents: 42, // R$ 0,42
-  serviceFeeBrlCents: 80, // R$ 0,80
+  conversionFeeBrlCents: 128,
+  networkFeeBrlCents: 42,
+  serviceFeeBrlCents: 80,
   receiptDateTime: '18 jun 2025, 10:49',
   cryptoId: '0x8F2A...91C4',
   endToEndPix: 'E000...4X9P',
@@ -89,45 +88,115 @@ interface PaymentContextType {
   resultState: PaymentResultState;
   setResultState: (state: PaymentResultState) => void;
   paymentDetails: PaymentDetails;
+  currentPayment: Payment | null;
+  currentQuote: PaymentQuote | null;
   currentAssetConfig: AssetQuoteConfig;
   handleScannedCode: (raw: string) => PixParseResult;
   simulateValidRead: () => void;
   testError: () => void;
-  confirmPayment: () => void;
+  confirmPayment: () => Promise<Payment | undefined>;
+  refreshQuote: (nowClock?: () => number) => Promise<PaymentQuote | null>;
   resetFlow: () => void;
 }
 
 const PaymentContext = createContext<PaymentContextType | undefined>(undefined);
 
 export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { quoteService, balanceService, paymentService } = useServices();
+
   const [readerState, setReaderState] = useState<ReaderState>('permission');
   const [codeScanned, setCodeScanned] = useState<boolean>(false);
   const [selectedAsset, setSelectedAsset] = useState<CoinType>('USDT');
   const [paymentConfirmed, setPaymentConfirmed] = useState<boolean>(false);
   const [resultState, setResultState] = useState<PaymentResultState>('confirmed');
+  const [currentPayment, setCurrentPayment] = useState<Payment | null>(null);
+  const [currentQuote, setCurrentQuote] = useState<PaymentQuote | null>(null);
+  const [balanceString, setBalanceString] = useState<string>('850,00 USDT');
+  const [isInsufficientBalance, setIsInsufficientBalance] = useState<boolean>(false);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>(defaultPaymentDetails);
+
+  // Mantém saldo atualizado quando o ativo muda
+  useEffect(() => {
+    let isMounted = true;
+    balanceService.formatBalance(selectedAsset as PaymentAsset).then((formatted) => {
+      if (isMounted) setBalanceString(formatted);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedAsset, balanceService]);
+
+  // Atualiza a cotação e validação de saldo
+  const updateQuote = useCallback(
+    async (
+      amountCents: number,
+      asset: PaymentAsset,
+      nowClock?: () => number,
+      forceNew = false
+    ): Promise<PaymentQuote> => {
+      if (forceNew) {
+        quoteService.invalidate(amountCents, asset);
+      }
+      const quote = await quoteService.getQuote(amountCents, asset, nowClock);
+      const isSufficient = await balanceService.hasSufficientBalance(quote.totalUnits, asset);
+
+      setCurrentQuote(quote);
+      setIsInsufficientBalance(!isSufficient);
+      return quote;
+    },
+    [quoteService, balanceService]
+  );
+
+  // Recarrega cotação quando ativo ou valor do pagamento muda
+  useEffect(() => {
+    if (!codeScanned && !currentPayment) {
+      // Pré-carrega cotação padrão (R$ 128,40)
+      updateQuote(12840, selectedAsset as PaymentAsset);
+      return;
+    }
+
+    const amount = currentPayment ? currentPayment.pix.amountCents : paymentDetails.chargeBrlCents;
+    updateQuote(amount, selectedAsset as PaymentAsset);
+  }, [selectedAsset, currentPayment, codeScanned, paymentDetails.chargeBrlCents, updateQuote]);
+
+  const refreshQuote = useCallback(
+    async (nowClock?: () => number): Promise<PaymentQuote | null> => {
+      const amount = currentPayment
+        ? currentPayment.pix.amountCents
+        : paymentDetails.chargeBrlCents;
+      return updateQuote(amount, selectedAsset as PaymentAsset, nowClock, true);
+    },
+    [currentPayment, paymentDetails.chargeBrlCents, selectedAsset, updateQuote]
+  );
 
   const handleScannedCode = (raw: string): PixParseResult => {
     const res = parsePixQRCode(raw);
 
     if (res.isValid && res.data) {
       const { date, receiptDateTime } = getNowDateStrings();
-      const brlAmount = res.data.amount;
-      const brlCents = Math.round(brlAmount * 100);
+      const amountCents = res.data.amountCents;
 
-      // Random hex IDs for mock receipt
       const randomHex = Math.random().toString(16).substring(2, 6).toUpperCase();
       const cryptoId = `0x8F2A...${randomHex}`;
       const endToEndPix = `E${Math.random().toString(36).substring(2, 5).toUpperCase()}...4X9P`;
 
+      const pixData: PaymentPixData = {
+        receiverName: res.data.receiverName,
+        receiverCity: res.data.receiverCity,
+        txid: res.data.txid,
+        amountCents,
+        rawCode: res.data.raw,
+        amountFormatted: res.data.amountFormatted,
+      };
+
       setPaymentDetails({
-        receiverName: res.data.receiverName || 'Recebedor Pix',
-        receiverCompany: undefined, // BR Code não traz
-        cnpj: undefined, // BR Code não traz
-        institution: undefined, // BR Code não traz
+        receiverName: res.data.receiverName,
+        receiverCompany: undefined,
+        cnpj: undefined,
+        institution: undefined,
         description: res.data.txid ? `Compra balcão ${res.data.txid}` : undefined,
         date,
-        chargeBrlCents: brlCents,
+        chargeBrlCents: amountCents,
         amountFormatted: res.data.amountFormatted,
         conversionFeeBrlCents: 128,
         networkFeeBrlCents: 42,
@@ -135,6 +204,12 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         receiptDateTime,
         cryptoId,
         endToEndPix,
+      });
+
+      // Cria a ordem de pagamento no PaymentService
+      paymentService.create(pixData, selectedAsset as PaymentAsset).then((createdPayment) => {
+        setCurrentPayment(createdPayment);
+        setCurrentQuote(createdPayment.quote);
       });
 
       setCodeScanned(true);
@@ -164,34 +239,61 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setReaderState((prev) => (prev === 'invalid' ? 'unrecognized' : 'invalid'));
   };
 
-  const confirmPayment = () => {
+  const confirmPayment = async (): Promise<Payment | undefined> => {
+    if (!currentPayment) {
+      setPaymentConfirmed(true);
+      return;
+    }
+
     setPaymentConfirmed(true);
+    const confirmedPayment = await paymentService.confirm(currentPayment.id);
+    setCurrentPayment(confirmedPayment);
+    setResultState(resultStateFor(confirmedPayment.status));
+    return confirmedPayment;
   };
 
   const resetFlow = () => {
     setReaderState('permission');
     setCodeScanned(false);
     setPaymentConfirmed(false);
+    setCurrentPayment(null);
     setResultState('confirmed');
     setSelectedAsset('USDT');
+    if (paymentService.reset) {
+      paymentService.reset();
+    }
   };
 
-  // Motor de cotação dinâmico baseado no ativo e no valor da cobrança
+  // Configuração do ativo atual para ReviewPaymentScreen e ResultScreen
   const currentAssetConfig = useMemo<AssetQuoteConfig>(() => {
-    const brlAmount = paymentDetails.chargeBrlCents / 100;
-    const q = calculateQuote(brlAmount, selectedAsset as SupportedAsset);
+    if (currentQuote && currentQuote.asset === selectedAsset) {
+      return {
+        code: selectedAsset,
+        balanceString,
+        quoteString: currentQuote.quoteString,
+        convertedTokenString: currentQuote.convertedTokenString,
+        totalTokenString: currentQuote.totalTokenString,
+        feesTokenString: currentQuote.feesTokenString,
+        debitedString: currentQuote.debitedString,
+        isInsufficientBalance,
+      };
+    }
 
+    // Fallback inicial estático enquanto a cotação assíncrona carrega
     return {
       code: selectedAsset,
-      balanceString: q.balanceString,
-      quoteString: q.quoteString,
-      convertedTokenString: q.convertedTokenString,
-      totalTokenString: q.totalTokenString,
-      feesTokenString: q.feesTokenString,
-      debitedString: q.debitedString,
-      isInsufficientBalance: q.isInsufficientBalance,
+      balanceString,
+      quoteString: selectedAsset === 'ETH' ? '1 ETH = R$ 13.218,00' : `1 ${selectedAsset} = R$ 5,155`,
+      convertedTokenString: selectedAsset === 'ETH' ? '0,00971 ETH' : `24,908 ${selectedAsset}`,
+      totalTokenString: selectedAsset === 'ETH' ? '0,00990 ETH' : `25,393 ${selectedAsset}`,
+      feesTokenString: selectedAsset === 'ETH' ? '0,00019 ETH' : `0,485 ${selectedAsset}`,
+      debitedString:
+        selectedAsset === 'ETH'
+          ? '0,00990 ETH debitados'
+          : `25,393 ${selectedAsset} debitados`,
+      isInsufficientBalance,
     };
-  }, [paymentDetails.chargeBrlCents, selectedAsset]);
+  }, [currentQuote, selectedAsset, balanceString, isInsufficientBalance]);
 
   return (
     <PaymentContext.Provider
@@ -205,11 +307,14 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         resultState,
         setResultState,
         paymentDetails,
+        currentPayment,
+        currentQuote,
         currentAssetConfig,
         handleScannedCode,
         simulateValidRead,
         testError,
         confirmPayment,
+        refreshQuote,
         resetFlow,
       }}
     >

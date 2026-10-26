@@ -16,6 +16,7 @@ export const ResultScreen: React.FC = () => {
     resultState,
     setResultState,
     paymentDetails,
+    currentPayment,
     currentAssetConfig,
     resetFlow,
   } = usePayment();
@@ -33,7 +34,7 @@ export const ResultScreen: React.FC = () => {
     navigate('/');
   };
 
-  // Configurações por estado
+  // Configurações visuais por estado
   let stateTitle: string = strings.result.confirmedTitle;
   let stateSubtitle: string = strings.result.confirmedSubtitle;
   let iconName: IconName = 'check';
@@ -74,6 +75,16 @@ export const ResultScreen: React.FC = () => {
     { id: 'refused', label: 'Recusado' },
     { id: 'expired', label: 'Expirado' },
   ];
+
+  // Dados reais provenientes do Payment ou de fallback formatado
+  const receiverName = currentPayment?.pix.receiverName || paymentDetails.receiverName;
+  const amountFormatted = currentPayment?.pix.amountFormatted || paymentDetails.amountFormatted || 'R$ 128,40';
+  const debitedString = currentPayment?.quote.debitedString || currentAssetConfig.debitedString;
+  const convertedTokenString = currentPayment?.quote.convertedTokenString || currentAssetConfig.convertedTokenString;
+  const feesTokenString = currentPayment?.quote.feesTokenString || currentAssetConfig.feesTokenString;
+  const receiptDateTime = currentPayment?.receipt?.receiptDateTime || paymentDetails.receiptDateTime;
+  const cryptoId = currentPayment?.receipt?.cryptoId || paymentDetails.cryptoId;
+  const endToEndPix = currentPayment?.receipt?.endToEndPix || paymentDetails.endToEndPix;
 
   return (
     <div
@@ -160,7 +171,7 @@ export const ResultScreen: React.FC = () => {
             marginBottom: '4px',
           }}
         >
-          {paymentDetails.receiverName}
+          {receiverName}
         </div>
         <div
           style={{
@@ -172,7 +183,7 @@ export const ResultScreen: React.FC = () => {
             marginBottom: '4px',
           }}
         >
-          {paymentDetails.amountFormatted || 'R$ 128,40'}
+          {amountFormatted}
         </div>
         <div
           style={{
@@ -180,7 +191,7 @@ export const ResultScreen: React.FC = () => {
             color: 'var(--muted)',
           }}
         >
-          {currentAssetConfig.debitedString}
+          {debitedString}
         </div>
       </div>
 
@@ -196,23 +207,23 @@ export const ResultScreen: React.FC = () => {
       >
         <DataRow
           label={strings.result.convertedValue}
-          value={currentAssetConfig.convertedTokenString}
+          value={convertedTokenString}
         />
         <DataRow
           label={strings.result.totalFees}
-          value={currentAssetConfig.feesTokenString}
+          value={feesTokenString}
         />
         <DataRow
           label={strings.result.dateTime}
-          value={paymentDetails.receiptDateTime}
+          value={receiptDateTime}
         />
         <DataRow
           label={strings.result.cryptoId}
-          value={paymentDetails.cryptoId}
+          value={cryptoId}
         />
         <DataRow
           label={strings.result.endToEndPix}
-          value={paymentDetails.endToEndPix}
+          value={endToEndPix}
         />
       </div>
 

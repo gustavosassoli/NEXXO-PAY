@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { TopBar } from '../components/TopBar';
 import { DemoBadge } from '../components/DemoBadge';
@@ -10,25 +10,85 @@ import { strings } from '../strings';
 import { usePayment } from '../context/PaymentContext';
 import { CoinType } from '../components/Coin';
 
-export const ReviewPaymentScreen: React.FC = () => {
+export interface ReviewPaymentScreenProps {
+  now?: () => number;
+}
+
+export const ReviewPaymentScreen: React.FC<ReviewPaymentScreenProps> = ({ now }) => {
   const navigate = useNavigate();
+  const clock = now || (() => Date.now());
+
   const {
     codeScanned,
     selectedAsset,
     setSelectedAsset,
     paymentDetails,
     currentAssetConfig,
+    currentQuote,
     confirmPayment,
+    refreshQuote,
   } = usePayment();
+
+  const [isConfirming, setIsConfirming] = useState<boolean>(false);
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(45);
+  const isRefreshingRef = useRef<boolean>(false);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Proteção de rota: se nenhum código foi lido, redireciona para o leitor
   if (!codeScanned) {
     return <Navigate to="/pagar" replace />;
   }
 
-  const handleConfirm = () => {
-    if (currentAssetConfig.isInsufficientBalance) return;
-    confirmPayment();
+  // Contador regressivo de 45 segundos da reserva da cotação
+  useEffect(() => {
+    if (isConfirming) {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      return;
+    }
+
+    const calculateRemaining = () => {
+      if (!currentQuote) return 45;
+      const msLeft = currentQuote.expiresAt - clock();
+      return Math.max(0, Math.ceil(msLeft / 1000));
+    };
+
+    const initial = calculateRemaining();
+    setSecondsRemaining(initial);
+
+    intervalRef.current = setInterval(async () => {
+      const left = calculateRemaining();
+      setSecondsRemaining(left);
+
+      // Auto-renovação da cotação ao atingir zero
+      if (left <= 0 && !isRefreshingRef.current) {
+        isRefreshingRef.current = true;
+        try {
+          await refreshQuote(clock);
+        } finally {
+          isRefreshingRef.current = false;
+        }
+      }
+    }, 1000);
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [currentQuote, clock, refreshQuote, isConfirming]);
+
+  // Formatação em minutos e segundos: "0:32"
+  const minutes = Math.floor(secondsRemaining / 60);
+  const seconds = secondsRemaining % 60;
+  const timeFormatted = `${minutes}:${String(seconds).padStart(2, '0')}`;
+
+  const handleConfirm = async () => {
+    if (isConfirming || currentAssetConfig.isInsufficientBalance) return;
+    setIsConfirming(true);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+    await confirmPayment();
     navigate('/pagar/processando');
   };
 
@@ -251,16 +311,30 @@ export const ReviewPaymentScreen: React.FC = () => {
         />
       </div>
 
-      {/* Nota da reserva da cotação */}
+      {/* Nota da reserva da cotação e contador regressivo de 45 segundos */}
       <div
         style={{
           fontSize: 'max(var(--min-text), 8px)',
           color: 'var(--muted)',
           textAlign: 'center',
           margin: '12px 0 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexWrap: 'wrap',
+          gap: '5px',
+          lineHeight: 1.3,
         }}
       >
-        {strings.review.quoteReserved}
+        <span>{strings.review.quoteReserved}</span>
+        <span
+          style={{
+            fontWeight: 600,
+            color: 'var(--accent)',
+          }}
+        >
+          Renova em {timeFormatted}
+        </span>
       </div>
 
       {/* Aviso de saldo insuficiente em vermelho suave */}
@@ -278,13 +352,13 @@ export const ReviewPaymentScreen: React.FC = () => {
         </div>
       )}
 
-      {/* Botão de confirmação */}
+      {/* Botão de confirmação com proteção contra duplo toque */}
       <Button
         variant="primary"
         icon="lock"
         onClick={handleConfirm}
-        disabled={isInsufficient}
-        aria-disabled={isInsufficient}
+        disabled={isInsufficient || isConfirming}
+        aria-disabled={isInsufficient || isConfirming}
       >
         {strings.review.confirmPayment}
       </Button>

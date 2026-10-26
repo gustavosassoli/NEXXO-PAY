@@ -7,25 +7,17 @@ import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
 import { strings } from '../strings';
 import { usePayment } from '../context/PaymentContext';
-
-interface TimelineStep {
-  id: number;
-  title: string;
-}
-
-const STEPS: TimelineStep[] = [
-  { id: 1, title: strings.processing.step1 },
-  { id: 2, title: strings.processing.step2 },
-  { id: 3, title: strings.processing.step3 },
-  { id: 4, title: strings.processing.step4 },
-  { id: 5, title: strings.processing.step5 },
-];
+import { stepsFor } from '../domain/payment/steps';
+import { useServices } from '../services';
+import { Payment } from '../domain/payment/types';
 
 export const ProcessingScreen: React.FC = () => {
   const navigate = useNavigate();
+  const { paymentService } = useServices();
   const {
     codeScanned,
     paymentConfirmed,
+    currentPayment,
   } = usePayment();
 
   // Proteção de rota
@@ -36,22 +28,24 @@ export const ProcessingScreen: React.FC = () => {
     return <Navigate to="/pagar/revisar" replace />;
   }
 
-  // Progresso das etapas: 1 a 5 (em andamento) -> 6 significa concluído
-  // Começamos em 3 para que os primeiros já comecem concluídos rapidamente ou em 1 avançando a cada 1.1s
-  // Na imagem 11, está na etapa 3 (1 e 2 concluídas, 3 em andamento).
-  // Vamos começar na etapa 1 e avançar a cada 1.1s até a etapa 6 (tudo concluído).
-  const [currentStep, setCurrentStep] = useState<number>(1);
+  // Estado do pagamento atualizado em tempo real via PaymentService.subscribe()
+  const [livePayment, setLivePayment] = useState<Payment | null>(currentPayment);
 
   useEffect(() => {
-    if (currentStep <= 5) {
-      const timer = setTimeout(() => {
-        setCurrentStep((prev) => prev + 1);
-      }, 1100);
-      return () => clearTimeout(timer);
-    }
-  }, [currentStep]);
+    if (!currentPayment) return;
 
-  const isCompleted = currentStep > 5;
+    const unsubscribe = paymentService.subscribe(currentPayment.id, (updated) => {
+      setLivePayment(updated);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [currentPayment, paymentService]);
+
+  const currentStatus = livePayment ? livePayment.status : 'AWAITING_CRYPTO';
+  const timelineSteps = stepsFor(currentStatus);
+  const isCompleted = currentStatus === 'COMPLETED';
 
   return (
     <div
@@ -132,7 +126,7 @@ export const ProcessingScreen: React.FC = () => {
         </p>
       </div>
 
-      {/* Linha do Tempo (Timeline com 5 etapas) */}
+      {/* Linha do Tempo (Timeline com 5 etapas reais orientadas pelo Domínio) */}
       <div
         className="nexo-card"
         aria-live="polite"
@@ -144,10 +138,10 @@ export const ProcessingScreen: React.FC = () => {
           marginBottom: '14px',
         }}
       >
-        {STEPS.map((step, index) => {
-          const stepDone = isCompleted || currentStep > step.id;
-          const stepCurrent = !isCompleted && currentStep === step.id;
-          const isLast = index === STEPS.length - 1;
+        {timelineSteps.map((step, index) => {
+          const stepDone = step.status === 'done';
+          const stepCurrent = step.status === 'in_progress';
+          const isLast = index === timelineSteps.length - 1;
 
           let statusText: string = strings.processing.statusPending;
           if (stepDone) statusText = strings.processing.statusDone;

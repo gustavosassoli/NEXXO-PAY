@@ -14,6 +14,7 @@ import { ActivityDetailScreen } from './screens/ActivityDetailScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { BottomNav } from './components/BottomNav';
 import { PaymentProvider } from './context/PaymentContext';
+import { ServicesProvider } from './services';
 import { ToastProvider } from './components/Toast';
 import { ThemeProvider } from './context/ThemeContext';
 
@@ -71,9 +72,11 @@ export default function App() {
     <HashRouter>
       <ThemeProvider>
         <ToastProvider>
-          <PaymentProvider>
-            <AppContent />
-          </PaymentProvider>
+          <ServicesProvider>
+            <PaymentProvider>
+              <AppContent />
+            </PaymentProvider>
+          </ServicesProvider>
         </ToastProvider>
       </ThemeProvider>
     </HashRouter>

@@ -6,7 +6,7 @@ import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
 import { strings } from '../strings';
 import { usePayment } from '../context/PaymentContext';
-import { DEMO_MODE, CAMERA_MODE } from '../config';
+import { DEMO_MODE, CAMERA_MODE, SHOW_DIAGNOSTICS } from '../config';
 
 declare global {
   interface Window {
@@ -912,8 +912,8 @@ export const ReaderScreen: React.FC = () => {
         </div>
       </div>
 
-      {/* Linha de diagnóstico discreta (apenas com DEMO_MODE = true) */}
-      {DEMO_MODE && (
+      {/* Linha de diagnóstico discreta (obedece a SHOW_DIAGNOSTICS) */}
+      {SHOW_DIAGNOSTICS && (
         <div
           style={{
             marginTop: '16px',
