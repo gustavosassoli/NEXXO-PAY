@@ -25,6 +25,8 @@ export const WalletSheet: React.FC = () => {
     switchToPolygon,
     balanceFormatted,
     isLoadingBalance,
+    balanceError,
+    isBalanceStale,
   } = useWallet();
 
   const { showToast } = useToast();
@@ -478,24 +480,62 @@ export const WalletSheet: React.FC = () => {
               <div
                 style={{
                   display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
+                  flexDirection: 'column',
                   paddingTop: '10px',
                   borderTop: '1px solid var(--line)',
                 }}
               >
-                <span style={{ fontSize: 'max(var(--min-text), 10px)', color: 'var(--muted)' }}>
-                  Saldo em USDC
-                </span>
-                <span
+                <div
                   style={{
-                    fontSize: 'max(var(--min-text), 13px)',
-                    fontWeight: 700,
-                    color: 'var(--accent)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
                   }}
                 >
-                  {isLoadingBalance ? strings.common.loading : balanceFormatted}
-                </span>
+                  <span style={{ fontSize: 'max(var(--min-text), 10px)', color: 'var(--muted)' }}>
+                    Saldo em USDC
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span
+                      style={{
+                        fontSize: 'max(var(--min-text), 13px)',
+                        fontWeight: 700,
+                        color: 'var(--accent)',
+                      }}
+                    >
+                      {isLoadingBalance ? strings.common.loading : balanceFormatted}
+                    </span>
+                    {isBalanceStale && (
+                      <span
+                        style={{
+                          fontSize: 'max(var(--min-text), 7px)',
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.02em',
+                          padding: '1px 3px',
+                          borderRadius: '4px',
+                          backgroundColor: 'var(--warning-bg-8)',
+                          color: 'var(--warning)',
+                        }}
+                      >
+                        {strings.walletSheet.balanceStale}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {balanceError && (
+                  <div
+                    style={{
+                      fontSize: 'max(var(--min-text), 9px)',
+                      color: 'var(--warning)',
+                      marginTop: '4px',
+                      textAlign: 'right',
+                    }}
+                  >
+                    {balanceError}
+                  </div>
+                )}
               </div>
             </div>
 

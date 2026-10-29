@@ -10,7 +10,7 @@ import React, {
   useCallback,
   useRef,
 } from 'react';
-import { useAccount, useConnect, useDisconnect, useSwitchChain, useChainId } from 'wagmi';
+import { useAccount, useConnect, useDisconnect, useSwitchChain } from 'wagmi';
 import { POLYGON_CHAIN_ID, getChain } from '../config/chains';
 import { RealBalanceService } from '../services/real/RealBalanceService';
 import { normalizeAddress } from '../lib/wallet';
@@ -37,6 +37,7 @@ interface WalletContextType {
   balanceFormatted: string;
   isLoadingBalance: boolean;
   balanceError: string | null;
+  isBalanceStale: boolean;
   refreshBalance: () => Promise<void>;
   realBalanceService: RealBalanceService;
 }
@@ -44,8 +45,7 @@ interface WalletContextType {
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
 export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { address, isConnected, isConnecting, status } = useAccount();
-  const chainId = useChainId();
+  const { address, isConnected, isConnecting, status, chainId } = useAccount();
   const { connectors, connectAsync } = useConnect();
   const { disconnectAsync } = useDisconnect();
   const { switchChainAsync } = useSwitchChain();
@@ -56,20 +56,22 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [balanceFormatted, setBalanceFormatted] = useState<string>('0,00 USDC');
   const [isLoadingBalance, setIsLoadingBalance] = useState<boolean>(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
+  const [isBalanceStale, setIsBalanceStale] = useState<boolean>(false);
 
-  // Instância do RealBalanceService vinculada ao endereço da carteira
-  const realBalanceServiceRef = useRef<RealBalanceService>(
-    new RealBalanceService(() => address)
-  );
+  // Instância única lazy do RealBalanceService (não recriada a cada renderização)
+  const realBalanceServiceRef = useRef<RealBalanceService | null>(null);
+  if (!realBalanceServiceRef.current) {
+    realBalanceServiceRef.current = new RealBalanceService();
+  }
 
   const normalizedAddress = normalizeAddress(address) || undefined;
-  const isWrongNetwork = isConnected && chainId !== POLYGON_CHAIN_ID;
+  const isWrongNetwork = Boolean(isConnected && chainId && chainId !== POLYGON_CHAIN_ID);
   const polygonConfig = getChain(POLYGON_CHAIN_ID);
   const targetChainName = polygonConfig?.name || 'Polygon PoS';
 
-  // Atualiza a conta ativa no serviço
+  // Atualiza a conta ativa no serviço sempre que o endereço mudar
   useEffect(() => {
-    realBalanceServiceRef.current.setAccount(normalizedAddress);
+    realBalanceServiceRef.current?.setAccount(normalizedAddress);
   }, [normalizedAddress]);
 
   const openWalletSheet = useCallback(() => setIsWalletSheetOpen(true), []);
@@ -80,20 +82,32 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setBalanceUnits(0n);
       setBalanceFormatted('0,00 USDC');
       setIsLoadingBalance(false);
+      if (isWrongNetwork) {
+        setBalanceError(strings.walletSheet.wrongNetwork);
+      } else {
+        setBalanceError(null);
+      }
+      setIsBalanceStale(false);
       return;
     }
 
+    // Assegura que o endereço atual esteja registrado no serviço antes da leitura
+    realBalanceServiceRef.current?.setAccount(normalizedAddress);
+
     setIsLoadingBalance(true);
-    setBalanceError(null);
 
     try {
-      const units = await realBalanceServiceRef.current.getBalance('USDC');
-      const formatted = await realBalanceServiceRef.current.formatBalance('USDC');
+      const units = await realBalanceServiceRef.current!.getBalance('USDC');
+      const formatted = await realBalanceServiceRef.current!.formatBalance('USDC');
       setBalanceUnits(units);
       setBalanceFormatted(formatted);
+      setBalanceError(null);
+      setIsBalanceStale(false);
     } catch (err) {
       console.warn('[WalletProvider] Erro ao carregar saldo USDC:', err);
-      setBalanceError('Erro de conexão com o RPC');
+      // Mantém o último valor conhecido e marca como desatualizado
+      setBalanceError(strings.walletSheet.balanceReadError);
+      setIsBalanceStale(true);
     } finally {
       setIsLoadingBalance(false);
     }
@@ -158,6 +172,8 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     await disconnectAsync();
     setBalanceUnits(0n);
     setBalanceFormatted('0,00 USDC');
+    setBalanceError(null);
+    setIsBalanceStale(false);
   }, [disconnectAsync]);
 
   // Troca para Polygon
@@ -188,8 +204,9 @@ export const WalletProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         balanceFormatted,
         isLoadingBalance,
         balanceError,
+        isBalanceStale,
         refreshBalance,
-        realBalanceService: realBalanceServiceRef.current,
+        realBalanceService: realBalanceServiceRef.current!,
       }}
     >
       {children}

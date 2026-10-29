@@ -8,14 +8,13 @@
 
 import React, { useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAccount, useChainId } from 'wagmi';
+import { useAccount } from 'wagmi';
 import { usePayment } from '../context/PaymentContext';
 import { useToast } from './Toast';
 import { strings } from '../strings';
 
 export const PaymentWalletWatcher: React.FC = () => {
-  const { address } = useAccount();
-  const chainId = useChainId();
+  const { address, chainId } = useAccount();
   const { currentPayment, resetFlow } = usePayment();
   const { showToast } = useToast();
   const navigate = useNavigate();

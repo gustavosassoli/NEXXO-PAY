@@ -18,20 +18,24 @@ const erc20BalanceOfAbi = parseAbi([
 ]);
 
 export class RealBalanceService implements BalanceService {
-  private client: ReturnType<typeof createPublicClient> | null = null;
+  private client: any = null;
   private currentAccount?: string;
   private cachedBalances = new Map<string, bigint>();
 
-  constructor(getAccount?: () => string | undefined) {
-    if (getAccount) {
-      this.getAccount = getAccount;
+  constructor(client?: any) {
+    if (client) {
+      this.client = client;
     }
   }
 
-  public getAccount: () => string | undefined = () => this.currentAccount;
+  public getAccount = (): string | undefined => this.currentAccount;
 
   public setAccount(account?: string) {
     this.currentAccount = account;
+  }
+
+  public setClient(client: any) {
+    this.client = client;
   }
 
   private getPublicClient() {
@@ -77,8 +81,14 @@ export class RealBalanceService implements BalanceService {
       return balanceBigInt;
     } catch (err) {
       console.warn('[RealBalanceService] Erro de leitura on-chain (RPC):', err);
-      return this.cachedBalances.get(`${account}_${asset}`) || 0n;
+      throw err;
     }
+  }
+
+  public getCachedBalance(asset: PaymentAsset): bigint | undefined {
+    const account = this.getAccount();
+    if (!account) return undefined;
+    return this.cachedBalances.get(`${account}_${asset}`);
   }
 
   async hasSufficientBalance(amountUnits: bigint, asset: PaymentAsset): Promise<boolean> {
@@ -90,6 +100,6 @@ export class RealBalanceService implements BalanceService {
     const balance = await this.getBalance(asset);
     const assetConfig = getAsset(asset);
     const decimals = assetConfig?.decimals ?? 6;
-    return formatToken(balance, decimals, asset, 2, 6);
+    return formatToken(balance, decimals, asset, 2, decimals);
   }
 }

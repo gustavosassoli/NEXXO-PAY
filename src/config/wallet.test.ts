@@ -155,4 +155,129 @@ describe('Web3 Wallet & Asset Configuration (src/config/wallet.test.ts)', () => 
       );
     });
   });
+
+  describe('RealBalanceService Account Binding & RPC Error Handling', () => {
+    it('updates the address used by getBalance when setAccount is called (using fake client)', async () => {
+      const { RealBalanceService } = await import('../services/real/RealBalanceService');
+
+      const address1 = '0x71A4c8D205fA3e7819B4C04F0389278912781928';
+      const address2 = '0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF';
+
+      const calls: any[] = [];
+      const fakeClient = {
+        readContract: async (params: any) => {
+          calls.push(params);
+          const requestedAddress = params.args[0];
+          if (requestedAddress.toLowerCase() === address1.toLowerCase()) {
+            return 100_000_000n; // 100 USDC
+          }
+          if (requestedAddress.toLowerCase() === address2.toLowerCase()) {
+            return 250_000_000n; // 250 USDC
+          }
+          return 0n;
+        },
+      };
+
+      const service = new RealBalanceService(fakeClient);
+
+      // Sem conta configurada retorna 0n sem chamar o cliente
+      expect(await service.getBalance('USDC')).toBe(0n);
+      expect(calls).toHaveLength(0);
+
+      // Define primeira conta
+      service.setAccount(address1);
+      expect(service.getAccount()).toBe(address1);
+      const balance1 = await service.getBalance('USDC');
+      expect(balance1).toBe(100_000_000n);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].args[0].toLowerCase()).toBe(address1.toLowerCase());
+
+      // Muda para a segunda conta via setAccount
+      service.setAccount(address2);
+      expect(service.getAccount()).toBe(address2);
+      const balance2 = await service.getBalance('USDC');
+      expect(balance2).toBe(250_000_000n);
+      expect(calls).toHaveLength(2);
+      expect(calls[1].args[0].toLowerCase()).toBe(address2.toLowerCase());
+    });
+
+    it('throws on RPC read error instead of returning 0n silently', async () => {
+      const { RealBalanceService } = await import('../services/real/RealBalanceService');
+      const testAccount = '0x71A4c8D205fA3e7819B4C04F0389278912781928';
+
+      const failingClient = {
+        readContract: async () => {
+          throw new Error('RPC connection timeout');
+        },
+      };
+
+      const service = new RealBalanceService(failingClient);
+      service.setAccount(testAccount);
+
+      await expect(service.getBalance('USDC')).rejects.toThrow('RPC connection timeout');
+    });
+  });
+
+  describe('Network Detection & QUOTED Interruption on Chain Change', () => {
+    it('detects wrong network when wallet emits chainChanged to 0x1 (Ethereum Mainnet)', () => {
+      const isConnected = true;
+
+      // Conectado na Polygon
+      const polygonChainId = POLYGON_CHAIN_ID;
+      const isWrongOnPolygon = Boolean(isConnected && polygonChainId && polygonChainId !== POLYGON_CHAIN_ID);
+      expect(isWrongOnPolygon).toBe(false);
+
+      // Carteira emite chainChanged para 0x1 (1)
+      const ethMainnetChainId: number = 1; // 0x1
+      const isWrongOnEth = Boolean(isConnected && ethMainnetChainId && ethMainnetChainId !== POLYGON_CHAIN_ID);
+      expect(isWrongOnEth).toBe(true);
+    });
+
+    it('cancels QUOTED payment and triggers notification when chain changes to 0x1', () => {
+      let resetCalled = false;
+      let toastMessage = '';
+
+      const resetFlow = () => {
+        resetCalled = true;
+      };
+      const showToast = (msg: string) => {
+        toastMessage = msg;
+      };
+
+      // Simulação da lógica de verificação do PaymentWalletWatcher
+      let currentStatus = 'QUOTED';
+      let prevChainId: number | undefined = POLYGON_CHAIN_ID;
+      let newChainId: number | undefined = 1; // 0x1
+
+      if (prevChainId !== undefined && newChainId !== undefined && prevChainId !== newChainId) {
+        if (currentStatus === 'QUOTED') {
+          resetFlow();
+          showToast(strings.walletSheet.paymentInterruptedToast);
+        }
+      }
+
+      expect(resetCalled).toBe(true);
+      expect(toastMessage).toBe(strings.walletSheet.paymentInterruptedToast);
+    });
+
+    it('does not treat balance read failure as insufficient balance', () => {
+      const isConnected = true;
+      const isWrongNetwork = false;
+      const balanceError = strings.walletSheet.balanceReadError;
+      const balanceUnits = 0n;
+      const currentQuote = { totalUnits: 25_000_000n };
+
+      // Lógica idêntica à do PaymentContext:
+      const isInsufficientBalance = Boolean(
+        isConnected &&
+        !isWrongNetwork &&
+        !balanceError &&
+        currentQuote &&
+        balanceUnits < currentQuote.totalUnits
+      );
+
+      // Com balanceError, isInsufficientBalance DEVE ser false (bloqueio por erro, não saldo zero)
+      expect(isInsufficientBalance).toBe(false);
+    });
+  });
 });

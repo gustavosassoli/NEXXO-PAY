@@ -9,6 +9,7 @@ import { Icon } from '../components/icons';
 import { strings } from '../strings';
 import { usePayment } from '../context/PaymentContext';
 import { useWallet } from '../context/WalletContext';
+import { useToast } from '../components/Toast';
 import { CoinType } from '../components/Coin';
 import { getAsset } from '../config/assets';
 
@@ -19,6 +20,7 @@ export interface ReviewPaymentScreenProps {
 export const ReviewPaymentScreen: React.FC<ReviewPaymentScreenProps> = ({ now }) => {
   const navigate = useNavigate();
   const clock = now || (() => Date.now());
+  const { showToast } = useToast();
 
   const {
     codeScanned,
@@ -84,11 +86,22 @@ export const ReviewPaymentScreen: React.FC<ReviewPaymentScreenProps> = ({ now })
   const seconds = secondsRemaining % 60;
   const timeFormatted = `${minutes}:${String(seconds).padStart(2, '0')}`;
 
-  const { isConnected, openWalletSheet } = useWallet();
+  const { isConnected, isWrongNetwork, balanceError, isBalanceStale, openWalletSheet } = useWallet();
+
+  const isInsufficient = isConnected && !isWrongNetwork && !balanceError && currentAssetConfig.isInsufficientBalance;
+  const isConfirmDisabled = isConnected && (isWrongNetwork || Boolean(balanceError) || isInsufficient || isConfirming);
 
   const handleConfirm = async () => {
     if (!isConnected) {
       openWalletSheet();
+      return;
+    }
+    if (isWrongNetwork) {
+      openWalletSheet();
+      return;
+    }
+    if (balanceError) {
+      showToast(balanceError);
       return;
     }
     if (isConfirming || currentAssetConfig.isInsufficientBalance) return;
@@ -101,7 +114,6 @@ export const ReviewPaymentScreen: React.FC<ReviewPaymentScreenProps> = ({ now })
   };
 
   const assetOptions: CoinType[] = ['USDC', 'USDT', 'ETH'];
-  const isInsufficient = isConnected && currentAssetConfig.isInsufficientBalance;
 
   return (
     <div
@@ -321,7 +333,29 @@ export const ReviewPaymentScreen: React.FC<ReviewPaymentScreenProps> = ({ now })
       >
         <DataRow
           label={`${strings.review.balanceIn} ${selectedAsset}`}
-          value={currentAssetConfig.balanceString}
+          value={
+            currentAssetConfig.isBalanceStale ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                <span>{currentAssetConfig.balanceString}</span>
+                <span
+                  style={{
+                    fontSize: 'max(var(--min-text), 7px)',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.02em',
+                    padding: '1px 3px',
+                    borderRadius: '4px',
+                    backgroundColor: 'var(--warning-bg-8)',
+                    color: 'var(--warning)',
+                  }}
+                >
+                  {strings.walletSheet.balanceStale}
+                </span>
+              </span>
+            ) : (
+              currentAssetConfig.balanceString
+            )
+          }
         />
         <DataRow
           label={strings.review.quoteUsed}
@@ -387,6 +421,53 @@ export const ReviewPaymentScreen: React.FC<ReviewPaymentScreenProps> = ({ now })
         </span>
       </div>
 
+      {/* Aviso de rede incorreta */}
+      {isConnected && isWrongNetwork && (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={openWalletSheet}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') openWalletSheet();
+          }}
+          style={{
+            fontSize: 'max(var(--min-text), 11px)',
+            color: 'var(--warning)',
+            textAlign: 'center',
+            marginBottom: '12px',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            cursor: 'pointer',
+          }}
+        >
+          <Icon name="shield" size={14} />
+          <span>{strings.walletSheet.wrongNetwork}: {strings.walletSheet.switchToPolygon}</span>
+        </div>
+      )}
+
+      {/* Aviso de erro de leitura do saldo (bloqueia confirmação sem tratar como zero) */}
+      {isConnected && !isWrongNetwork && balanceError && (
+        <div
+          style={{
+            fontSize: 'max(var(--min-text), 11px)',
+            color: 'var(--warning)',
+            textAlign: 'center',
+            marginBottom: '12px',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+          }}
+        >
+          <Icon name="shield" size={14} />
+          <span>{balanceError}</span>
+        </div>
+      )}
+
       {/* Aviso de saldo insuficiente em vermelho suave */}
       {isInsufficient && (
         <div
@@ -402,13 +483,13 @@ export const ReviewPaymentScreen: React.FC<ReviewPaymentScreenProps> = ({ now })
         </div>
       )}
 
-      {/* Botão de confirmação com proteção contra duplo toque e bloqueio sem carteira */}
+      {/* Botão de confirmação com proteção contra duplo toque e bloqueio sem carteira ou com erro */}
       <Button
         variant="primary"
         icon="lock"
         onClick={handleConfirm}
-        disabled={isConnected && (isInsufficient || isConfirming)}
-        aria-disabled={isConnected && (isInsufficient || isConfirming)}
+        disabled={isConfirmDisabled}
+        aria-disabled={isConfirmDisabled}
       >
         {strings.review.confirmPayment}
       </Button>

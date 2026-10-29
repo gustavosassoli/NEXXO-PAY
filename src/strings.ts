@@ -268,5 +268,7 @@ export const strings = {
     networkError: 'Não foi possível trocar para a rede Polygon automaticamente.',
     neverAskSecret: 'O NEXO PAY nunca solicita sua frase secreta.',
     paymentInterruptedToast: 'Rede ou conta da carteira alterada. Fluxo de pagamento cancelado.',
+    balanceReadError: 'Não foi possível ler o saldo',
+    balanceStale: 'Desatualizado',
   },
 } as const;

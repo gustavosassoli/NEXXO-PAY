@@ -41,6 +41,8 @@ export interface AssetQuoteConfig {
   feesTokenString: string;
   debitedString: string;
   isInsufficientBalance: boolean;
+  balanceError?: string | null;
+  isBalanceStale?: boolean;
 }
 
 export const DEFAULT_SAMPLE_CODE =
@@ -100,6 +102,7 @@ interface PaymentContextType {
 }
 
 import { getEnabledAssets } from '../config/assets';
+import { useWallet } from './WalletContext';
 
 const firstEnabledAsset = (getEnabledAssets()[0]?.symbol as CoinType) || 'USDC';
 
@@ -107,6 +110,7 @@ const PaymentContext = createContext<PaymentContextType | undefined>(undefined);
 
 export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { quoteService, balanceService, paymentService } = useServices();
+  const wallet = useWallet();
 
   const [readerState, setReaderState] = useState<ReaderState>('permission');
   const [codeScanned, setCodeScanned] = useState<boolean>(false);
@@ -115,22 +119,50 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [resultState, setResultState] = useState<PaymentResultState>('confirmed');
   const [currentPayment, setCurrentPayment] = useState<Payment | null>(null);
   const [currentQuote, setCurrentQuote] = useState<PaymentQuote | null>(null);
-  const [balanceString, setBalanceString] = useState<string>('0,00 USDC');
-  const [isInsufficientBalance, setIsInsufficientBalance] = useState<boolean>(false);
+  const [fallbackBalanceString, setFallbackBalanceString] = useState<string>('0,00 USDC');
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>(defaultPaymentDetails);
 
-  // Mantém saldo atualizado quando o ativo muda
+  // Mantém saldo atualizado de ativos secundários
   useEffect(() => {
     let isMounted = true;
     balanceService.formatBalance(selectedAsset as PaymentAsset).then((formatted) => {
-      if (isMounted) setBalanceString(formatted);
+      if (isMounted) setFallbackBalanceString(formatted);
     });
     return () => {
       isMounted = false;
     };
   }, [selectedAsset, balanceService]);
 
-  // Atualiza a cotação e validação de saldo
+  // Consome o saldo dinâmico da carteira conectada para USDC
+  const activeBalanceString = useMemo(() => {
+    if (selectedAsset === 'USDC') {
+      if (!wallet.isConnected) return '0,00 USDC';
+      return wallet.balanceFormatted;
+    }
+    return fallbackBalanceString;
+  }, [selectedAsset, wallet.isConnected, wallet.balanceFormatted, fallbackBalanceString]);
+
+  // Checagem reativa de saldo suficiente:
+  // - Atualiza automaticamente a cada 30s, ao conectar, desconectar, trocar conta ou rede
+  // - Nunca trata falha de leitura (balanceError) ou rede incorreta como saldo zero
+  const isInsufficientBalance = useMemo(() => {
+    if (!wallet.isConnected || wallet.isWrongNetwork || Boolean(wallet.balanceError)) {
+      return false;
+    }
+    if (selectedAsset === 'USDC' && currentQuote) {
+      return wallet.balanceUnits < currentQuote.totalUnits;
+    }
+    return false;
+  }, [
+    wallet.isConnected,
+    wallet.isWrongNetwork,
+    wallet.balanceError,
+    wallet.balanceUnits,
+    selectedAsset,
+    currentQuote,
+  ]);
+
+  // Atualiza a cotação
   const updateQuote = useCallback(
     async (
       amountCents: number,
@@ -142,13 +174,10 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         quoteService.invalidate(amountCents, asset);
       }
       const quote = await quoteService.getQuote(amountCents, asset, nowClock);
-      const isSufficient = await balanceService.hasSufficientBalance(quote.totalUnits, asset);
-
       setCurrentQuote(quote);
-      setIsInsufficientBalance(!isSufficient);
       return quote;
     },
-    [quoteService, balanceService]
+    [quoteService]
   );
 
   // Recarrega cotação quando ativo ou valor do pagamento muda
@@ -273,20 +302,22 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (currentQuote && currentQuote.asset === selectedAsset) {
       return {
         code: selectedAsset,
-        balanceString,
+        balanceString: activeBalanceString,
         quoteString: currentQuote.quoteString,
         convertedTokenString: currentQuote.convertedTokenString,
         totalTokenString: currentQuote.totalTokenString,
         feesTokenString: currentQuote.feesTokenString,
         debitedString: currentQuote.debitedString,
         isInsufficientBalance,
+        balanceError: wallet.balanceError,
+        isBalanceStale: wallet.isBalanceStale,
       };
     }
 
     // Fallback inicial estático enquanto a cotação assíncrona carrega
     return {
       code: selectedAsset,
-      balanceString,
+      balanceString: activeBalanceString,
       quoteString: selectedAsset === 'ETH' ? '1 ETH = R$ 13.218,00' : `1 ${selectedAsset} = R$ 5,155`,
       convertedTokenString: selectedAsset === 'ETH' ? '0,00971 ETH' : `24,908 ${selectedAsset}`,
       totalTokenString: selectedAsset === 'ETH' ? '0,00990 ETH' : `25,393 ${selectedAsset}`,
@@ -296,8 +327,17 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ? '0,00990 ETH debitados'
           : `25,393 ${selectedAsset} debitados`,
       isInsufficientBalance,
+      balanceError: wallet.balanceError,
+      isBalanceStale: wallet.isBalanceStale,
     };
-  }, [currentQuote, selectedAsset, balanceString, isInsufficientBalance]);
+  }, [
+    currentQuote,
+    selectedAsset,
+    activeBalanceString,
+    isInsufficientBalance,
+    wallet.balanceError,
+    wallet.isBalanceStale,
+  ]);
 
   return (
     <PaymentContext.Provider
