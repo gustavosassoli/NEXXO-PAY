@@ -1,5 +1,8 @@
 import React from 'react';
 import { HashRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
+import { WagmiProvider } from 'wagmi';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { wagmiConfig } from './config/wagmi';
 import { HomeScreen } from './screens/HomeScreen';
 import { ReaderScreen } from './screens/ReaderScreen';
 import { ReviewPaymentScreen } from './screens/ReviewPaymentScreen';
@@ -14,9 +17,21 @@ import { ActivityDetailScreen } from './screens/ActivityDetailScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { BottomNav } from './components/BottomNav';
 import { PaymentProvider } from './context/PaymentContext';
+import { WalletProvider } from './context/WalletContext';
 import { ServicesProvider } from './services';
 import { ToastProvider } from './components/Toast';
 import { ThemeProvider } from './context/ThemeContext';
+import { WalletSheet } from './components/WalletSheet';
+import { PaymentWalletWatcher } from './components/PaymentWalletWatcher';
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const AppContent: React.FC = () => {
   const location = useLocation();
@@ -69,16 +84,24 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <HashRouter>
-      <ThemeProvider>
-        <ToastProvider>
-          <ServicesProvider>
-            <PaymentProvider>
-              <AppContent />
-            </PaymentProvider>
-          </ServicesProvider>
-        </ToastProvider>
-      </ThemeProvider>
-    </HashRouter>
+    <WagmiProvider config={wagmiConfig}>
+      <QueryClientProvider client={queryClient}>
+        <HashRouter>
+          <ThemeProvider>
+            <ToastProvider>
+              <WalletProvider>
+                <ServicesProvider>
+                  <PaymentProvider>
+                    <PaymentWalletWatcher />
+                    <AppContent />
+                    <WalletSheet />
+                  </PaymentProvider>
+                </ServicesProvider>
+              </WalletProvider>
+            </ToastProvider>
+          </ThemeProvider>
+        </HashRouter>
+      </QueryClientProvider>
+    </WagmiProvider>
   );
 }

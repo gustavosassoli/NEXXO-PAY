@@ -3,22 +3,25 @@
  */
 
 import React, { createContext, useContext, useMemo } from 'react';
-import { SERVICES_MODE } from '../config';
+import { BALANCE_MODE, SERVICES_MODE } from '../config';
 import { MockBalanceService } from './mock/MockBalanceService';
 import { MockPaymentService } from './mock/MockPaymentService';
 import { MockQuoteService } from './mock/MockQuoteService';
+import { RealBalanceService } from './real/RealBalanceService';
 import { BalanceService, PaymentService, QuoteService, ServicesContainer } from './types';
+import { useWallet } from '../context/WalletContext';
 
 export * from './types';
 export * from './mock/MockBalanceService';
 export * from './mock/MockPaymentService';
 export * from './mock/MockQuoteService';
+export * from './real/RealBalanceService';
 
 const ServicesContext = createContext<ServicesContainer | undefined>(undefined);
 
 // Instâncias singleton padrão para a aplicação
 const defaultQuoteService: QuoteService = new MockQuoteService();
-const defaultBalanceService: BalanceService = new MockBalanceService();
+const defaultMockBalanceService: BalanceService = new MockBalanceService();
 const defaultPaymentService: PaymentService = new MockPaymentService(defaultQuoteService);
 
 export interface ServicesProviderProps {
@@ -34,14 +37,17 @@ export const ServicesProvider: React.FC<ServicesProviderProps> = ({
   balanceService,
   paymentService,
 }) => {
+  const { realBalanceService } = useWallet();
+
   const container = useMemo<ServicesContainer>(() => {
     if (SERVICES_MODE === 'real') {
-      // Ponto de extensão para modo real quando backend/Web3 forem integrados
       console.info('[NEXO PAY] SERVICES_MODE=real configurado. Inicializando conectores.');
     }
 
     const resolvedQuote = quoteService || defaultQuoteService;
-    const resolvedBalance = balanceService || defaultBalanceService;
+    const resolvedBalance =
+      balanceService ||
+      (BALANCE_MODE === 'chain' ? realBalanceService : defaultMockBalanceService);
     const resolvedPayment = paymentService || defaultPaymentService;
 
     return {
@@ -49,7 +55,7 @@ export const ServicesProvider: React.FC<ServicesProviderProps> = ({
       balanceService: resolvedBalance,
       paymentService: resolvedPayment,
     };
-  }, [quoteService, balanceService, paymentService]);
+  }, [quoteService, balanceService, paymentService, realBalanceService]);
 
   return (
     <ServicesContext.Provider value={container}>

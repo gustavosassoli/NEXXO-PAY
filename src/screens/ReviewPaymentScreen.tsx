@@ -8,7 +8,9 @@ import { Button } from '../components/Button';
 import { Icon } from '../components/icons';
 import { strings } from '../strings';
 import { usePayment } from '../context/PaymentContext';
+import { useWallet } from '../context/WalletContext';
 import { CoinType } from '../components/Coin';
+import { getAsset } from '../config/assets';
 
 export interface ReviewPaymentScreenProps {
   now?: () => number;
@@ -82,7 +84,13 @@ export const ReviewPaymentScreen: React.FC<ReviewPaymentScreenProps> = ({ now })
   const seconds = secondsRemaining % 60;
   const timeFormatted = `${minutes}:${String(seconds).padStart(2, '0')}`;
 
+  const { isConnected, openWalletSheet } = useWallet();
+
   const handleConfirm = async () => {
+    if (!isConnected) {
+      openWalletSheet();
+      return;
+    }
     if (isConfirming || currentAssetConfig.isInsufficientBalance) return;
     setIsConfirming(true);
     if (intervalRef.current) {
@@ -92,8 +100,8 @@ export const ReviewPaymentScreen: React.FC<ReviewPaymentScreenProps> = ({ now })
     navigate('/pagar/processando');
   };
 
-  const assetOptions: CoinType[] = ['USDT', 'USDC', 'ETH'];
-  const isInsufficient = currentAssetConfig.isInsufficientBalance;
+  const assetOptions: CoinType[] = ['USDC', 'USDT', 'ETH'];
+  const isInsufficient = isConnected && currentAssetConfig.isInsufficientBalance;
 
   return (
     <div
@@ -244,18 +252,60 @@ export const ReviewPaymentScreen: React.FC<ReviewPaymentScreenProps> = ({ now })
         {strings.review.youWillPayWith}
       </h2>
 
-      {/* Seletor Segmentado USDT / USDC / ETH */}
+      {/* Seletor Segmentado USDC / USDT / ETH */}
       <div className="nexo-segmented" style={{ marginBottom: '16px' }}>
-        {assetOptions.map((asset) => (
-          <button
-            key={asset}
-            type="button"
-            className={`nexo-segmented-btn ${selectedAsset === asset ? 'is-active' : ''}`}
-            onClick={() => setSelectedAsset(asset)}
-          >
-            {asset}
-          </button>
-        ))}
+        {assetOptions.map((asset) => {
+          const assetCfg = getAsset(asset);
+          const isEnabled = assetCfg?.enabled ?? false;
+
+          if (!isEnabled) {
+            return (
+              <button
+                key={asset}
+                type="button"
+                disabled
+                aria-disabled="true"
+                className="nexo-segmented-btn"
+                style={{
+                  opacity: 0.4,
+                  cursor: 'not-allowed',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                }}
+                title={strings.common.comingSoon}
+              >
+                <span>{asset}</span>
+                <span
+                  style={{
+                    fontSize: 'max(var(--min-text), 7px)',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.02em',
+                    padding: '1px 3px',
+                    borderRadius: '4px',
+                    backgroundColor: 'var(--surface-3)',
+                    color: 'var(--muted)',
+                  }}
+                >
+                  {strings.common.comingSoon}
+                </span>
+              </button>
+            );
+          }
+
+          return (
+            <button
+              key={asset}
+              type="button"
+              className={`nexo-segmented-btn ${selectedAsset === asset ? 'is-active' : ''}`}
+              onClick={() => setSelectedAsset(asset)}
+            >
+              {asset}
+            </button>
+          );
+        })}
       </div>
 
       {/* Cartão de Pagamento com Cotação e Taxas */}
@@ -352,13 +402,13 @@ export const ReviewPaymentScreen: React.FC<ReviewPaymentScreenProps> = ({ now })
         </div>
       )}
 
-      {/* Botão de confirmação com proteção contra duplo toque */}
+      {/* Botão de confirmação com proteção contra duplo toque e bloqueio sem carteira */}
       <Button
         variant="primary"
         icon="lock"
         onClick={handleConfirm}
-        disabled={isInsufficient || isConfirming}
-        aria-disabled={isInsufficient || isConfirming}
+        disabled={isConnected && (isInsufficient || isConfirming)}
+        aria-disabled={isConnected && (isInsufficient || isConfirming)}
       >
         {strings.review.confirmPayment}
       </Button>

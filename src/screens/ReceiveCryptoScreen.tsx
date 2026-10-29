@@ -1,31 +1,65 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import QRCode from 'qrcode';
 import { TopBar } from '../components/TopBar';
 import { DemoBadge } from '../components/DemoBadge';
 import { WarningCard } from '../components/WarningCard';
 import { Icon } from '../components/icons';
 import { strings } from '../strings';
 import { CoinType } from '../components/Coin';
+import { useWallet } from '../context/WalletContext';
+import { getAsset } from '../config/assets';
 
 type CryptoNetwork = 'Polygon' | 'Ethereum' | 'Arbitrum';
 
 export const ReceiveCryptoScreen: React.FC = () => {
   const navigate = useNavigate();
-  const [selectedAsset, setSelectedAsset] = useState<CoinType>('USDT');
+  const { isConnected, normalizedAddress } = useWallet();
+
+  const [selectedAsset, setSelectedAsset] = useState<CoinType>('USDC');
   const [selectedNetwork, setSelectedNetwork] = useState<CryptoNetwork>('Polygon');
   const [copied, setCopied] = useState<boolean>(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
 
-  const address = '0x71A4C8D205FA3E7819B4C04F';
-  const assetOptions: CoinType[] = ['USDT', 'USDC', 'ETH'];
-  const networkOptions: CryptoNetwork[] = ['Polygon', 'Ethereum', 'Arbitrum'];
+  const sampleAddress = '0x71A4C8D205FA3E7819B4C04F';
+  const displayAddress = isConnected && normalizedAddress ? normalizedAddress : sampleAddress;
+
+  const assetOptions: CoinType[] = ['USDC', 'USDT', 'ETH'];
+  const networkOptions: { name: CryptoNetwork; enabled: boolean }[] = [
+    { name: 'Polygon', enabled: true },
+    { name: 'Ethereum', enabled: false },
+    { name: 'Arbitrum', enabled: false },
+  ];
+
+  // Gera o QR Code real localmente via biblioteca qrcode
+  useEffect(() => {
+    if (isConnected && normalizedAddress) {
+      QRCode.toDataURL(normalizedAddress, {
+        width: 150,
+        margin: 1,
+        color: {
+          dark: '#000000',
+          light: '#ffffff',
+        },
+      })
+        .then((url) => setQrDataUrl(url))
+        .catch((err) => {
+          console.warn('[ReceiveCryptoScreen] Erro ao gerar QR Code local:', err);
+          setQrDataUrl(null);
+        });
+    } else {
+      setQrDataUrl(null);
+    }
+  }, [isConnected, normalizedAddress]);
 
   const handleCopy = async () => {
+    if (!isConnected || !normalizedAddress) return;
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(address);
+        await navigator.clipboard.writeText(normalizedAddress);
       }
     } catch {
-      // Fallback gracioso: o texto continua selecionável
+      // Fallback gracioso
     }
     setCopied(true);
     setTimeout(() => {
@@ -72,18 +106,60 @@ export const ReceiveCryptoScreen: React.FC = () => {
           aria-label={strings.receive.cryptoAsset}
           className="nexo-segmented"
         >
-          {assetOptions.map((asset) => (
-            <button
-              key={asset}
-              type="button"
-              role="radio"
-              aria-checked={selectedAsset === asset}
-              className={`nexo-segmented-btn ${selectedAsset === asset ? 'is-active' : ''}`}
-              onClick={() => setSelectedAsset(asset)}
-            >
-              {asset}
-            </button>
-          ))}
+          {assetOptions.map((asset) => {
+            const assetCfg = getAsset(asset);
+            const isEnabled = assetCfg?.enabled ?? false;
+
+            if (!isEnabled) {
+              return (
+                <button
+                  key={asset}
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  className="nexo-segmented-btn"
+                  style={{
+                    opacity: 0.4,
+                    cursor: 'not-allowed',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                  }}
+                  title={strings.common.comingSoon}
+                >
+                  <span>{asset}</span>
+                  <span
+                    style={{
+                      fontSize: 'max(var(--min-text), 7px)',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.02em',
+                      padding: '1px 3px',
+                      borderRadius: '4px',
+                      backgroundColor: 'var(--surface-3)',
+                      color: 'var(--muted)',
+                    }}
+                  >
+                    {strings.common.comingSoon}
+                  </span>
+                </button>
+              );
+            }
+
+            return (
+              <button
+                key={asset}
+                type="button"
+                role="radio"
+                aria-checked={selectedAsset === asset}
+                className={`nexo-segmented-btn ${selectedAsset === asset ? 'is-active' : ''}`}
+                onClick={() => setSelectedAsset(asset)}
+              >
+                {asset}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -110,14 +186,18 @@ export const ReceiveCryptoScreen: React.FC = () => {
           }}
         >
           {networkOptions.map((net) => {
-            const isActive = selectedNetwork === net;
+            const isActive = selectedNetwork === net.name;
+            const isEnabled = net.enabled;
+
             return (
               <button
-                key={net}
+                key={net.name}
                 type="button"
                 role="radio"
                 aria-checked={isActive}
-                onClick={() => setSelectedNetwork(net)}
+                disabled={!isEnabled}
+                aria-disabled={!isEnabled}
+                onClick={() => isEnabled && setSelectedNetwork(net.name)}
                 style={{
                   height: '38px',
                   borderRadius: '12px',
@@ -130,13 +210,33 @@ export const ReceiveCryptoScreen: React.FC = () => {
                     ? '1px solid var(--accent-border-35)'
                     : '1px solid var(--line)',
                   color: isActive ? 'var(--accent)' : 'var(--muted)',
-                  cursor: 'pointer',
+                  cursor: isEnabled ? 'pointer' : 'not-allowed',
+                  opacity: isEnabled ? 1 : 0.45,
                   outline: 'none',
                   transition: 'all 180ms ease',
                   userSelect: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '3px',
                 }}
               >
-                {net}
+                <span>{net.name}</span>
+                {!isEnabled && (
+                  <span
+                    style={{
+                      fontSize: 'max(var(--min-text), 6.5px)',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      padding: '1px 3px',
+                      borderRadius: '4px',
+                      backgroundColor: 'var(--surface-3)',
+                      color: 'var(--muted)',
+                    }}
+                  >
+                    Breve
+                  </span>
+                )}
               </button>
             );
           })}
@@ -158,33 +258,60 @@ export const ReceiveCryptoScreen: React.FC = () => {
           marginBottom: '16px',
         }}
       >
-        {/* QR Code gerado conforme a especificação: 150x150, fundo var(--qr-bg), 8x8 grid */}
-        <div
-          style={{
-            width: '150px',
-            height: '150px',
-            borderRadius: '14px',
-            backgroundColor: 'var(--qr-bg)',
-            padding: '13px',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(8, 1fr)',
-            gap: '2px',
-            boxSizing: 'border-box',
-          }}
-        >
-          {Array.from({ length: 64 }, (_, i) => {
-            const isFilled = (i * 7 + (i % 3)) % 5 < 2;
-            return (
-              <div
-                key={i}
-                style={{
-                  borderRadius: '1px',
-                  backgroundColor: isFilled ? 'var(--qr-dot)' : 'transparent',
-                }}
-              />
-            );
-          })}
-        </div>
+        {/* QR Code real da carteira (quando conectado) ou grid ilustrativo (quando desconectado) */}
+        {isConnected && qrDataUrl ? (
+          <div
+            style={{
+              width: '150px',
+              height: '150px',
+              borderRadius: '14px',
+              backgroundColor: '#FFFFFF',
+              padding: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxSizing: 'border-box',
+            }}
+          >
+            <img
+              src={qrDataUrl}
+              alt="QR Code do endereço"
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'block',
+                borderRadius: '8px',
+              }}
+            />
+          </div>
+        ) : (
+          <div
+            style={{
+              width: '150px',
+              height: '150px',
+              borderRadius: '14px',
+              backgroundColor: 'var(--qr-bg)',
+              padding: '13px',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(8, 1fr)',
+              gap: '2px',
+              boxSizing: 'border-box',
+            }}
+          >
+            {Array.from({ length: 64 }, (_, i) => {
+              const isFilled = (i * 7 + (i % 3)) % 5 < 2;
+              return (
+                <div
+                  key={i}
+                  style={{
+                    borderRadius: '1px',
+                    backgroundColor: isFilled ? 'var(--qr-dot)' : 'transparent',
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
 
         {/* Título do endereço */}
         <div
@@ -209,29 +336,33 @@ export const ReceiveCryptoScreen: React.FC = () => {
             wordBreak: 'break-all',
             marginBottom: '14px',
             userSelect: 'all',
+            fontFamily: 'monospace',
           }}
         >
-          {address}
+          {displayAddress}
         </div>
 
-        {/* Botão Copiar Endereço */}
+        {/* Botão Copiar Endereço (Desabilitado quando desconectado) */}
         <button
           type="button"
           onClick={handleCopy}
+          disabled={!isConnected}
+          aria-disabled={!isConnected}
           aria-label={copied ? strings.receive.addressCopied : strings.receive.copyAddress}
           style={{
             borderRadius: '12px',
             padding: '10px 14px',
             fontSize: 'max(var(--min-text), 9px)',
             fontWeight: 700,
-            backgroundColor: 'var(--accent)',
-            color: 'var(--on-accent)',
-            border: 'none',
+            backgroundColor: isConnected ? 'var(--accent)' : 'var(--surface-3)',
+            color: isConnected ? 'var(--on-accent)' : 'var(--muted)',
+            border: isConnected ? 'none' : '1px solid var(--line)',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
             gap: '6px',
-            cursor: 'pointer',
+            cursor: isConnected ? 'pointer' : 'not-allowed',
+            opacity: isConnected ? 1 : 0.6,
             outline: 'none',
             transition: 'transform 180ms ease, opacity 180ms ease',
             userSelect: 'none',
@@ -242,26 +373,30 @@ export const ReceiveCryptoScreen: React.FC = () => {
         </button>
       </div>
 
-      {/* Cartão de Aviso */}
-      <WarningCard>
+      {/* Aviso de Segurança */}
+      <WarningCard style={{ marginBottom: '14px' }}>
         <div>
-          <div style={{ fontWeight: 700, marginBottom: '2px' }}>
+          <div style={{ fontWeight: 650, marginBottom: '2px', color: 'var(--text)' }}>
             {strings.receive.warningTitle(selectedAsset, selectedNetwork)}
           </div>
           <div>{strings.receive.warningDesc}</div>
         </div>
       </WarningCard>
 
-      {/* Nota de rodapé de segurança */}
+      {/* Nota de privacidade */}
       <div
         style={{
-          marginTop: '16px',
-          textAlign: 'center',
-          fontSize: 'max(var(--min-text), 8px)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
           color: 'var(--muted)',
+          fontSize: 'max(var(--min-text), 9px)',
+          lineHeight: 1.4,
+          padding: '0 4px',
         }}
       >
-        {strings.receive.neverShareSecret}
+        <Icon name="shield" size={17} style={{ flexShrink: 0 }} />
+        <span>{strings.receive.neverShareSecret}</span>
       </div>
     </div>
   );

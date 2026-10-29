@@ -53,15 +53,24 @@ const PREFERENCES_ITEMS: PreferenceItem[] = [
   },
 ];
 
+import { useWallet } from '../context/WalletContext';
+
 export const ProfileScreen: React.FC = () => {
   const { showToast } = useToast();
   const { theme, setTheme } = useTheme();
+  const { isConnected, openWalletSheet, disconnectWallet } = useWallet();
   const [biometryEnabled, setBiometryEnabled] = useState<boolean>(true);
   const [activeAction, setActiveAction] = useState<SensitiveAction>(null);
 
-  const handleActionConfirm = () => {
+  const handleActionConfirm = async () => {
+    const action = activeAction;
     setActiveAction(null);
-    showToast(strings.profile.actionSimulated);
+    if (action === 'disconnect') {
+      await disconnectWallet();
+      showToast('Carteira desconectada');
+    } else {
+      showToast(strings.profile.actionSimulated);
+    }
   };
 
   return (
@@ -439,64 +448,77 @@ export const ProfileScreen: React.FC = () => {
 
           <div style={{ height: '1px', backgroundColor: 'var(--line)' }} />
 
-          {PREFERENCES_ITEMS.map((item, idx) => (
-            <div key={item.id}>
-              {idx > 0 && <div style={{ height: '1px', backgroundColor: 'var(--line)' }} />}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => showToast(strings.wallet.soonToast)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    showToast(strings.wallet.soonToast);
-                  }
-                }}
-                style={{
-                  padding: '14px 16px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '12px',
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-                  <div style={{ color: 'var(--profile-menu-icon)', flexShrink: 0 }}>
-                    <Icon name={item.icon} size={20} />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
-                    <span
-                      style={{
-                        fontSize: 'max(var(--min-text), 12px)',
-                        fontWeight: 600,
-                        color: 'var(--text)',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {item.title}
-                    </span>
-                    {item.subtitle && (
+          {PREFERENCES_ITEMS.map((item, idx) => {
+            const isWallets = item.id === 'wallets';
+            const subtitle = isWallets
+              ? isConnected
+                ? strings.profile.connectedWalletsOne
+                : strings.profile.connectedWalletsNone
+              : item.subtitle;
+
+            const handleClick = isWallets
+              ? () => openWalletSheet()
+              : () => showToast(strings.wallet.soonToast);
+
+            return (
+              <div key={item.id}>
+                {idx > 0 && <div style={{ height: '1px', backgroundColor: 'var(--line)' }} />}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={handleClick}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      handleClick();
+                    }
+                  }}
+                  style={{
+                    padding: '14px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '12px',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                    <div style={{ color: 'var(--profile-menu-icon)', flexShrink: 0 }}>
+                      <Icon name={item.icon} size={20} />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
                       <span
                         style={{
-                          fontSize: 'max(var(--min-text), 10px)',
-                          color: 'var(--muted)',
+                          fontSize: 'max(var(--min-text), 12px)',
+                          fontWeight: 600,
+                          color: 'var(--text)',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
                         }}
                       >
-                        {item.subtitle}
+                        {item.title}
                       </span>
-                    )}
+                      {subtitle && (
+                        <span
+                          style={{
+                            fontSize: 'max(var(--min-text), 10px)',
+                            color: 'var(--muted)',
+                          }}
+                        >
+                          {subtitle}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ color: 'var(--muted)', flexShrink: 0 }}>
+                    <Icon name="chevron" size={16} />
                   </div>
                 </div>
-
-                <div style={{ color: 'var(--muted)', flexShrink: 0 }}>
-                  <Icon name="chevron" size={16} />
-                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

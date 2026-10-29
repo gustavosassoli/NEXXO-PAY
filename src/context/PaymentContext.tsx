@@ -99,6 +99,10 @@ interface PaymentContextType {
   resetFlow: () => void;
 }
 
+import { getEnabledAssets } from '../config/assets';
+
+const firstEnabledAsset = (getEnabledAssets()[0]?.symbol as CoinType) || 'USDC';
+
 const PaymentContext = createContext<PaymentContextType | undefined>(undefined);
 
 export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -106,12 +110,12 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [readerState, setReaderState] = useState<ReaderState>('permission');
   const [codeScanned, setCodeScanned] = useState<boolean>(false);
-  const [selectedAsset, setSelectedAsset] = useState<CoinType>('USDT');
+  const [selectedAsset, setSelectedAsset] = useState<CoinType>(firstEnabledAsset);
   const [paymentConfirmed, setPaymentConfirmed] = useState<boolean>(false);
   const [resultState, setResultState] = useState<PaymentResultState>('confirmed');
   const [currentPayment, setCurrentPayment] = useState<Payment | null>(null);
   const [currentQuote, setCurrentQuote] = useState<PaymentQuote | null>(null);
-  const [balanceString, setBalanceString] = useState<string>('850,00 USDT');
+  const [balanceString, setBalanceString] = useState<string>('0,00 USDC');
   const [isInsufficientBalance, setIsInsufficientBalance] = useState<boolean>(false);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>(defaultPaymentDetails);
 
@@ -258,7 +262,7 @@ export const PaymentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setPaymentConfirmed(false);
     setCurrentPayment(null);
     setResultState('confirmed');
-    setSelectedAsset('USDT');
+    setSelectedAsset(firstEnabledAsset);
     if (paymentService.reset) {
       paymentService.reset();
     }

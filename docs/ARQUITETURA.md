@@ -184,3 +184,83 @@ Em `src/services/index.tsx`, plugue as implementações de infraestrutura:
    - **Integração:** Gateway de pagamento via Pix Dict / API Pix Bacen (ex.: Stark Bank, Celcoin, Ebanx, Itaú / Banco do Brasil Pix).
    - **Eventos em Tempo Real:** Conectar o método `subscribe()` a uma conexão WebSocket ou Server-Sent Events (SSE) `/api/payments/{id}/events`.
    - Conforme o backend recebe o webhook do Banco Central (`PIX_RECEBIDO`, `PIX_LIQUIDADO`), despacha a transição para a máquina de estados local.
+
+---
+
+## 5. Arquitetura Web3 & Conexão de Carteira (Etapa W7)
+
+### 5.1 Registro Extensível de Redes e Ativos (`src/config/chains.ts`, `src/config/assets.ts`)
+
+A arquitetura Web3 do NEXO PAY adota um registro central e extensível de redes e ativos, isolando configurações de rede e contratos:
+
+- **Rede MVP:** Polygon PoS (Chain ID `137`, com RPC configurável via `VITE_POLYGON_RPC_URL` ou fallback público).
+- **Ativo MVP:** USD Coin nativo da Polygon (símbolo `USDC`, contrato `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`, 6 decimais — não o bridged USDC.e).
+- **Ativos Reservados:** USDT e ETH permanecem no registro com `enabled: false` e badge "Em breve" na interface.
+
+#### Invariante de Código:
+> **O Chain ID `137` e o endereço do contrato do USDC nativo na Polygon (`0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`) NUNCA devem ser codificados de forma literal fora de `src/config/`.**  
+> Todo o resto do aplicativo (telas, serviços, componentes, utilitários) consome `POLYGON_CHAIN_ID` de `src/config/chains` e `getAsset()` / `getEnabledAssets()` de `src/config/assets`.
+
+#### Como Adicionar uma Nova Rede (ex.: Arbitrum, Base, Optimism):
+1. **Definir no registro de redes (`src/config/chains.ts`):**
+   ```typescript
+   export const ARBITRUM_CHAIN_ID = 42161;
+   export const CHAINS: Record<number, ChainConfig> = {
+     // ...
+     [ARBITRUM_CHAIN_ID]: {
+       id: ARBITRUM_CHAIN_ID,
+       name: 'Arbitrum One',
+       shortName: 'Arbitrum',
+       nativeSymbol: 'ETH',
+       rpcUrl: import.meta.env.VITE_ARBITRUM_RPC_URL || 'https://arb1.arbitrum.io/rpc',
+       explorerUrl: 'https://arbiscan.io',
+       enabled: true,
+     },
+   };
+   ```
+2. **Associar os endereços de contrato dos tokens em `src/config/assets.ts`:**
+   ```typescript
+   ASSETS.USDC.addresses[ARBITRUM_CHAIN_ID] = getAddress('0xaf88d065e77c8cC2239327C5EDb3A432268e5831');
+   ```
+3. O cliente Wagmi (`src/config/wagmi.ts`) e o `RealBalanceService` derivam automaticamente as redes ativas através de `getEnabledChains()`, sem necessidade de refatoração na UI.
+
+---
+
+### 5.2 Modelo Econômico de Taxas (Fee Model & Gas Sponsorship)
+
+No fluxo de conversão Pix para cripto, a experiência do usuário elimina a barreira do gás nativo:
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                          Total em USDC Pago                            │
+│  ┌───────────────────────┬──────────────────────┬───────────────────┐  │
+│  │    Cotação Pix BRL    │   Taxa de Serviço    │   Taxa de Rede    │  │
+│  │    (ex: 24,908 USDC)  │   (ex: 0,320 USDC)   │ (ex: 0,165 USDC)  │  │
+│  └───────────────────────┴──────────────────────┴───────────────────┘  │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+1. **Total Unificado em USDC:**
+   - O usuário paga 100% da operação em USDC.
+   - O usuário **NÃO precisa ter saldo de POL** (token nativo da Polygon) para cobrir gas.
+2. **Patrocínio de Gás por Relayer (Nas etapas de execução):**
+   - Um serviço relayer (ex.: meta-transações ERC-2771 / EIP-712 ou ERC-3009 `transferWithAuthorization` ou Paymaster ERC-4337) paga a taxa de gas nativa da rede em POL.
+   - O relayer se reembolsa a partir da parcela `networkFee` em USDC já descontada no montante total autorizado pelo usuário.
+
+---
+
+### 5.3 Regras de Segurança e Invariantes da W7
+
+1. **Somente Leitura (Read-Only Protocol):**
+   - A etapa W7 executa unicamente chamadas `readContract` (`balanceOf`) e listeners de conexão de carteira via Wagmi/viem.
+   - Nenhuma função de escrita (`sendTransaction`, `writeContract`), aprovação (`approve`) ou assinatura de mensagem/dados (`signMessage`, `signTypedData`) é chamada.
+2. **Sem Custódia e Sem Chaves:**
+   - O app não armazena, solicita nem processa chaves privadas ou seed phrases. A custódia permanece 100% com a carteira externa do usuário (MetaMask, Rainbow, Coinbase Wallet, etc.).
+3. **Observador de Troca de Carteira/Rede (`PaymentWalletWatcher`):**
+   - Se o usuário trocar a conta ativa ou mudar para uma rede diferente durante o estado `QUOTED`, a cotação é cancelada imediatamente com uma notificação discreta (toast: *"A cotação foi cancelada porque a conta ou rede da carteira foi alterada."*).
+   - Estados posteriores à cotação (`CRYPTO_CONFIRMED`, `PAYING_PIX`, etc.) não são interrompidos pelo watcher para proteger transações ativas.
+4. **Mapeamento Calmo de Erros Web3:**
+   - Erros do provedor de carteira (como código `4001` de cancelamento de solicitação pelo usuário) recebem tratamento neutro e acolhedor (*"Conexão cancelada na carteira."*), sem alarmes ou jargões técnicos.
+5. **Polled Balance Sync:**
+   - O saldo do ativo ativo é sincronizado automaticamente a cada 30 segundos, ao reconectar, e em eventos de foco da janela (`focus`) e retorno de visibilidade (`visibilitychange`).
+

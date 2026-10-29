@@ -105,7 +105,7 @@
 
   /* Informações e Badges */
   --info-bg: rgba(66, 107, 166, 0.08);
-  --info-border: rgba(105, 137, 186, 0.12);
+  --info-border: #6989ba1f;
   --demo-badge-bg: rgba(255, 255, 255, 0.025);
   --profile-badge-bg: rgba(183, 195, 215, 0.1);
 

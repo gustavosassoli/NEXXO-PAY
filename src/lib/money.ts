@@ -59,7 +59,7 @@ export function formatToken(
   decimals: number,
   symbol?: string,
   minDecimals = 2,
-  maxDecimals = 3
+  maxDecimals = decimals
 ): string {
   const isNegative = amount < 0n;
   const absAmount = isNegative ? -amount : amount;

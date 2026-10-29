@@ -29,6 +29,13 @@ export const CAMERA_MODE: 'real' | 'simulated' = 'real';
 export const SERVICES_MODE: 'mock' | 'real' = 'mock';
 
 /**
+ * Modo de consulta de saldo:
+ * - 'chain': lê o saldo real do USDC nativo na Polygon via viem/RPC da blockchain (W7).
+ * - 'mock': usa saldos estáticos mockados em memória.
+ */
+export const BALANCE_MODE: 'mock' | 'chain' = 'chain';
+
+/**
  * Exibição do rodapé de diagnóstico técnico no leitor de QR Code.
  * Por padrão false, mantendo o visual fiel ao design original.
  */

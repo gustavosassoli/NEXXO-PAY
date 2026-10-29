@@ -7,17 +7,39 @@ import { InfoCard } from '../components/InfoCard';
 import { Icon } from '../components/icons';
 import { strings } from '../strings';
 import { mockBalances, getAssets } from '../data/mock';
-import { formatBrl, formatUsd, formatToken } from '../lib/money';
+import { formatBrl, formatUsd } from '../lib/money';
 import { useToast } from '../components/Toast';
+import { useWallet } from '../context/WalletContext';
+import { getAsset } from '../config/assets';
 
 export const WalletScreen: React.FC = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const assets = getAssets();
+  const { isConnected, balanceUnits, balanceFormatted, openWalletSheet } = useWallet();
+  const rawAssets = getAssets();
+
+  // Garante que o USDC (único ativo habilitado no MVP) fique no topo da lista
+  const assets = [...rawAssets].sort((a, b) => {
+    if (a.code === 'USDC') return -1;
+    if (b.code === 'USDC') return 1;
+    return 0;
+  });
 
   const handleAssetClick = (code: string) => {
+    const assetCfg = getAsset(code);
+    if (!assetCfg?.enabled) return;
     navigate(`/carteira/ativo?code=${code}`);
   };
+
+  // Cálculo de patrimônio em USDC (1 USDC = 1 USD = 100 centavos)
+  const usdcCents = isConnected ? Number(balanceUnits / 10000n) : 0;
+  // Cotação de referência: 1 USDC = R$ 5,155
+  const estimatedBrlCents = isConnected
+    ? Number((BigInt(usdcCents) * 5155n + 500n) / 1000n)
+    : 0;
+
+  const displayTotalUsd = formatUsd(usdcCents);
+  const displayTotalBrl = formatBrl(estimatedBrlCents);
 
   return (
     <div
@@ -42,7 +64,7 @@ export const WalletScreen: React.FC = () => {
       <div
         style={{
           textAlign: 'center',
-          padding: '15px 0 25px',
+          padding: '15px 0 20px',
         }}
       >
         <div
@@ -66,7 +88,7 @@ export const WalletScreen: React.FC = () => {
             marginBottom: '10px',
           }}
         >
-          {formatUsd(mockBalances.totalUsdCents)}
+          {displayTotalUsd}
         </div>
 
         <div
@@ -76,6 +98,7 @@ export const WalletScreen: React.FC = () => {
             justifyContent: 'center',
             gap: '8px',
             flexWrap: 'wrap',
+            marginBottom: !isConnected ? '14px' : '0',
           }}
         >
           <span
@@ -84,7 +107,7 @@ export const WalletScreen: React.FC = () => {
               color: 'var(--muted)',
             }}
           >
-            ≈ {formatBrl(mockBalances.estimatedBrlCents)}
+            ≈ {displayTotalBrl}
           </span>
           <span
             style={{
@@ -97,6 +120,39 @@ export const WalletScreen: React.FC = () => {
           </span>
           <DemoBadge />
         </div>
+
+        {/* Aviso de carteira desconectada com clique para abrir o sheet */}
+        {!isConnected && (
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={openWalletSheet}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                openWalletSheet();
+              }
+            }}
+            style={{
+              marginTop: '12px',
+              padding: '7px 14px',
+              borderRadius: '12px',
+              backgroundColor: 'var(--accent-tint-6)',
+              border: '1px solid var(--accent-border-25)',
+              color: 'var(--accent)',
+              fontSize: 'max(var(--min-text), 10px)',
+              fontWeight: 500,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              cursor: 'pointer',
+              userSelect: 'none',
+              maxWidth: '320px',
+            }}
+          >
+            <Icon name="wallet" size={14} />
+            <span>{strings.wallet.disconnectedNotice}</span>
+          </div>
+        )}
       </div>
 
       {/* Três Ações (Receber, Enviar, Trocar) */}
@@ -260,11 +316,18 @@ export const WalletScreen: React.FC = () => {
         }}
       >
         {assets.map((asset, index) => {
-          const formattedTokenAmount = formatToken(
-            asset.amount,
-            asset.decimals,
-            asset.code
-          );
+          const assetCfg = getAsset(asset.code);
+          const isEnabled = assetCfg?.enabled ?? false;
+
+          let displayTokenAmount = '—';
+          let displayUsd = '—';
+          let displayBrl = '—';
+
+          if (isEnabled) {
+            displayTokenAmount = isConnected ? balanceFormatted : '0,00 USDC';
+            displayUsd = isConnected ? displayTotalUsd : 'US$ 0,00';
+            displayBrl = isConnected ? `≈ ${displayTotalBrl}` : '≈ R$ 0,00';
+          }
 
           return (
             <div key={asset.code}>
@@ -279,22 +342,25 @@ export const WalletScreen: React.FC = () => {
               )}
               <div
                 role="button"
-                tabIndex={0}
+                tabIndex={isEnabled ? 0 : -1}
+                aria-disabled={!isEnabled}
                 onClick={() => handleAssetClick(asset.code)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
+                  if (isEnabled && (e.key === 'Enter' || e.key === ' ')) {
                     handleAssetClick(asset.code);
                   }
                 }}
-                className="nexo-activity-item"
+                className={`nexo-activity-item ${!isEnabled ? 'is-disabled' : ''}`}
                 style={{
                   padding: '15px',
                   display: 'grid',
-                  gridTemplateColumns: '39px 1fr auto 17px',
+                  gridTemplateColumns: '39px 1fr auto auto',
                   gap: '10px',
                   alignItems: 'center',
-                  cursor: 'pointer',
+                  cursor: isEnabled ? 'pointer' : 'default',
+                  opacity: isEnabled ? 1 : 0.45,
                   outline: 'none',
+                  userSelect: 'none',
                 }}
               >
                 {/* Moeda */}
@@ -306,16 +372,34 @@ export const WalletScreen: React.FC = () => {
 
                 {/* Código e Quantidade */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                  <span
-                    style={{
-                      fontSize: 'max(var(--min-text), 11px)',
-                      fontWeight: 700,
-                      color: 'var(--text)',
-                      lineHeight: 1.1,
-                    }}
-                  >
-                    {asset.code}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span
+                      style={{
+                        fontSize: 'max(var(--min-text), 11px)',
+                        fontWeight: 700,
+                        color: 'var(--text)',
+                        lineHeight: 1.1,
+                      }}
+                    >
+                      {asset.code}
+                    </span>
+                    {!isEnabled && (
+                      <span
+                        style={{
+                          fontSize: 'max(var(--min-text), 7px)',
+                          fontWeight: 600,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.02em',
+                          padding: '1px 4px',
+                          borderRadius: '4px',
+                          backgroundColor: 'var(--surface-3)',
+                          color: 'var(--muted)',
+                        }}
+                      >
+                        {strings.common.comingSoon}
+                      </span>
+                    )}
+                  </div>
                   <span
                     style={{
                       fontSize: 'max(var(--min-text), 8px)',
@@ -323,7 +407,7 @@ export const WalletScreen: React.FC = () => {
                       lineHeight: 1.1,
                     }}
                   >
-                    {formattedTokenAmount}
+                    {displayTokenAmount}
                   </span>
                 </div>
 
@@ -344,7 +428,7 @@ export const WalletScreen: React.FC = () => {
                       lineHeight: 1.1,
                     }}
                   >
-                    {formatUsd(asset.usdCents)}
+                    {displayUsd}
                   </span>
                   <span
                     style={{
@@ -353,13 +437,13 @@ export const WalletScreen: React.FC = () => {
                       lineHeight: 1.1,
                     }}
                   >
-                    {formatBrl(asset.brlCents)}
+                    {displayBrl}
                   </span>
                 </div>
 
-                {/* Chevron */}
-                <div style={{ color: 'var(--muted)', display: 'flex', justifyContent: 'flex-end' }}>
-                  <Icon name="chevron" size={17} />
+                {/* Chevron para selecionáveis */}
+                <div style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>
+                  {isEnabled && <Icon name="chevron" size={16} />}
                 </div>
               </div>
             </div>
@@ -368,7 +452,7 @@ export const WalletScreen: React.FC = () => {
       </div>
 
       {/* Cartão de Informação */}
-      <InfoCard icon="info" iconSize={18} style={{ margin: 0 }}>
+      <InfoCard icon="info" iconSize={18}>
         {strings.wallet.disclaimer}
       </InfoCard>
     </div>
